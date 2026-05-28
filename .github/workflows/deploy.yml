@@ -14,8 +14,9 @@ permissions:
 
 env:
   IMAGE_NAME: crm-service
-  STACK_NAME: crm
-  SERVICE_NAME: crm_crm-service
+  # crm-service runs inside the unified cccrm stack (managed by crm-gateway repo).
+  # CI only updates the service image — it does NOT redeploy the entire stack.
+  SERVICE_NAME: cccrm_crm-service
 
 jobs:
   build-and-push:
@@ -63,18 +64,6 @@ jobs:
     needs: build-and-push
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Copy stack file to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: docker-stack.yml
-          target: /opt/crm/
-
       - name: Deploy and verify rollout
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -87,45 +76,47 @@ jobs:
             REGISTRY="${{ secrets.REGISTRY }}/${{ github.repository_owner }}"
             IMAGE_TAG="${{ github.sha }}"
             SERVICE="${{ env.SERVICE_NAME }}"
-            STACK="${{ env.STACK_NAME }}"
             NEW_IMAGE="$REGISTRY/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
-
-            export REGISTRY IMAGE_TAG
-            export DB_NAME="${{ secrets.DB_NAME }}"
-            export DB_USER="${{ secrets.DB_USER }}"
 
             echo "==> Logging in to registry on server"
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ secrets.REGISTRY }} \
               -u ${{ github.actor }} --password-stdin
 
-            echo "==> Deploying image: $NEW_IMAGE"
-            docker stack deploy -c /opt/crm/docker-stack.yml "$STACK" --with-registry-auth
+            echo "==> Updating service $SERVICE to image: $NEW_IMAGE"
+            docker service update \
+              --image "$NEW_IMAGE" \
+              --with-registry-auth \
+              "$SERVICE"
 
             echo "==> Monitoring rollout (max 5 min)..."
-            MAX_WAIT=450
+            MAX_WAIT=300
             INTERVAL=15
             ELAPSED=0
 
             while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
-              REPLICAS=$(docker service ls --filter "name=$SERVICE" --format "{{.Replicas}}" 2>/dev/null || echo "0/0")
-              RUNNING=$(echo "$REPLICAS" | cut -d'/' -f1)
-              DESIRED=$(echo "$REPLICAS" | cut -d'/' -f2)
+              # head -1 prevents multi-line output if filter matches multiple services
+              REPLICAS=$(docker service ls --filter "name=$SERVICE" --format "{{.Replicas}}" 2>/dev/null | head -1)
+              REPLICAS="${REPLICAS:-0/0}"
+              RUNNING=$(echo "$REPLICAS" | cut -d'/' -f1 | tr -d '[:space:]')
+              DESIRED=$(echo "$REPLICAS" | cut -d'/' -f2 | tr -d '[:space:]')
 
               set +o pipefail
               TASK_STATES=$(docker service ps "$SERVICE" --no-trunc \
                 --format "{{.Image}} {{.CurrentState}}" 2>/dev/null || true)
-              FAILED=$(echo "$TASK_STATES" | grep -F "$IMAGE_TAG" | grep -cE "Failed|Rejected" || echo 0)
+              FAILED=$(echo "$TASK_STATES" | grep -F "$IMAGE_TAG" | grep -cE "Failed|Rejected" 2>/dev/null || echo "0")
+              FAILED=$(echo "$FAILED" | head -1 | tr -d '[:space:]')
+              FAILED="${FAILED:-0}"
               set -o pipefail
 
               echo "  [${ELAPSED}s] Replicas: $REPLICAS | Failed new tasks: $FAILED"
 
               if [ "$FAILED" -gt 0 ]; then
-                echo "==> ERROR: new image failed health check — rolling back"
+                echo "==> ERROR: new image failed — rolling back"
                 docker service rollback "$SERVICE" || true
                 exit 1
               fi
 
-              if [ "$DESIRED" -gt 0 ] && [ "$RUNNING" = "$DESIRED" ]; then
+              if [ -n "$DESIRED" ] && [ "$DESIRED" -gt 0 ] && [ "$RUNNING" = "$DESIRED" ]; then
                 SPEC_IMAGE=$(docker service inspect "$SERVICE" \
                   --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' 2>/dev/null || echo "")
                 if echo "$SPEC_IMAGE" | grep -q "$IMAGE_TAG"; then
