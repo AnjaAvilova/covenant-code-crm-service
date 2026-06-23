@@ -102,9 +102,8 @@ jobs:
 
               set +o pipefail
               TASK_STATES=$(docker service ps "$SERVICE" --no-trunc \
-                --format "{{.Image}} {{.CurrentState}}" 2>/dev/null || true)
-              FAILED=$(echo "$TASK_STATES" | grep -F "$IMAGE_TAG" | grep -cE "Failed|Rejected" 2>/dev/null || echo "0")
-              FAILED=$(echo "$FAILED" | head -1 | tr -d '[:space:]')
+                --format "{{.Image}} {{.CurrentState}} {{.Error}}" 2>/dev/null || true)
+              FAILED=$(echo "$TASK_STATES" | grep -F "$IMAGE_TAG" | grep -E "Failed|Rejected" | grep -v "No such container" | wc -l | tr -d '[:space:]')
               FAILED="${FAILED:-0}"
               set -o pipefail
 
