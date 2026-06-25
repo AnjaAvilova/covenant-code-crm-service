@@ -1,17 +1,20 @@
 package com.covenantcode.crm.service.impl;
 
 import com.covenantcode.crm.dto.lead.*;
+import com.covenantcode.crm.dto.lead.*;
 import com.covenantcode.crm.dto.student.StudentResponse;
-import com.covenantcode.crm.entity.Course;
-import com.covenantcode.crm.entity.Lead;
-import com.covenantcode.crm.entity.Student;
+import com.covenantcode.crm.dto.lead.*;
+import com.covenantcode.crm.entity.*;
 import com.covenantcode.crm.entity.enums.LeadStatus;
-import com.covenantcode.crm.entity.User;
+import com.covenantcode.crm.entity.Student;
+import com.covenantcode.crm.entity.LeadComment;
 import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
+import com.covenantcode.crm.mapper.LeadCommentMapper;
 import com.covenantcode.crm.mapper.LeadMapper;
 import com.covenantcode.crm.mapper.StudentMapper;
 import com.covenantcode.crm.repository.CourseRepository;
+import com.covenantcode.crm.repository.LeadCommentRepository;
 import com.covenantcode.crm.repository.LeadRepository;
 import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.UserRepository;
@@ -63,6 +66,12 @@ class LeadServiceImplTest {
     @Mock
     private LeadMapper leadMapper;
 
+    @Mock
+    private LeadCommentRepository leadCommentRepository;
+
+    @Mock
+    private LeadCommentMapper leadCommentMapper;
+
     @InjectMocks
     private LeadServiceImpl leadService;
 
@@ -72,6 +81,11 @@ class LeadServiceImplTest {
     private User manager;
     private Lead savedLead;
     private LeadResponse expectedResponse;
+    private LeadCommentCreateRequest commentRequest;
+    private Lead existingLead;
+    private User author;
+    private LeadComment savedComment;
+    private LeadCommentResponse commentResponse;
 
     private Lead lead;
     private LeadResponse leadResponse;
@@ -141,6 +155,36 @@ class LeadServiceImplTest {
 
         leadResponse = new LeadResponse();
         leadResponse.setId(1L);
+
+        commentRequest = LeadCommentCreateRequest.builder()
+                .text("Test comment text")
+                .build();
+
+        existingLead = new Lead();
+        existingLead.setId(1L);
+        existingLead.setFirstName("Ivan");
+        existingLead.setLastName("Petrov");
+
+        author = new User();
+        author.setId(10L);
+        author.setFirstName("Anna");
+        author.setLastName("Smith");
+        author.setEmail("anna@example.com");
+
+        savedComment = LeadComment.builder()
+                .id(100L)
+                .lead(existingLead)
+                .author(author)
+                .text("Test comment text")
+                .build();
+
+        commentResponse = LeadCommentResponse.builder()
+                .id(100L)
+                .leadId(1L)
+                .author(new UserShortResponse(10L, "Anna", "Smith"))
+                .text("Test comment text")
+                .createdAt(LocalDateTime.now())
+                .build();
     }
 
 
@@ -346,6 +390,7 @@ class LeadServiceImplTest {
         Specification<Lead> capturedSpec = specCaptor.getValue();
         assertThat(capturedSpec).isNotNull();
     }
+
     @Test
     @DisplayName("Успешная конвертация лида в студента")
     void convertToStudent_Success() {
@@ -422,5 +467,103 @@ class LeadServiceImplTest {
                 () -> leadService.convertToStudent(1L, new LeadConvertRequest()));
 
         verify(studentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Успешное добавление комментария - лид найден, автор найден")
+    void addComment_whenLeadAndAuthorFound_shouldReturnLeadCommentResponse() {
+        Long leadId = 1L;
+        Long authorId = 10L;
+
+        when(leadRepository.findById(leadId)).thenReturn(Optional.of(existingLead));
+        when(userRepository.findById(authorId)).thenReturn(Optional.of(author));
+        when(leadCommentRepository.save(any(LeadComment.class))).thenReturn(savedComment);
+        when(leadCommentMapper.toResponse(savedComment)).thenReturn(commentResponse);
+
+        LeadCommentResponse result = leadService.addComment(leadId, commentRequest, authorId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(100L);
+        assertThat(result.getLeadId()).isEqualTo(1L);
+        assertThat(result.getText()).isEqualTo("Test comment text");
+        assertThat(result.getAuthor()).isNotNull();
+        assertThat(result.getAuthor().getId()).isEqualTo(10L);
+        assertThat(result.getAuthor().getFirstName()).isEqualTo("Anna");
+        assertThat(result.getAuthor().getLastName()).isEqualTo("Smith");
+
+        verify(leadRepository, times(1)).findById(leadId);
+        verify(userRepository, times(1)).findById(authorId);
+        verify(leadCommentRepository, times(1)).save(any(LeadComment.class));
+        verify(leadCommentMapper, times(1)).toResponse(savedComment);
+    }
+
+    @Test
+    @DisplayName("Лид не найден - бросается ResourceNotFoundException")
+    void addComment_whenLeadNotFound_shouldThrowResourceNotFoundException() {
+        Long leadId = 999L;
+        Long authorId = 10L;
+
+        when(leadRepository.findById(leadId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> leadService.addComment(leadId, commentRequest, authorId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Lead")
+                .hasMessageContaining(String.valueOf(leadId));
+
+        verify(leadRepository, times(1)).findById(leadId);
+        verify(userRepository, never()).findById(anyLong());
+        verify(leadCommentRepository, never()).save(any(LeadComment.class));
+        verify(leadCommentMapper, never()).toResponse(any(LeadComment.class));
+    }
+
+    @Test
+    @DisplayName("Автор не найден - бросается ResourceNotFoundException")
+    void addComment_whenAuthorNotFound_shouldThrowResourceNotFoundException() {
+        Long leadId = 1L;
+        Long authorId = 999L;
+
+        when(leadRepository.findById(leadId)).thenReturn(Optional.of(existingLead));
+        when(userRepository.findById(authorId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> leadService.addComment(leadId, commentRequest, authorId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User")
+                .hasMessageContaining(String.valueOf(authorId));
+
+        verify(leadRepository, times(1)).findById(leadId);
+        verify(userRepository, times(1)).findById(authorId);
+        verify(leadCommentRepository, never()).save(any(LeadComment.class));
+        verify(leadCommentMapper, never()).toResponse(any(LeadComment.class));
+    }
+
+    @Test
+    @DisplayName("Проверка, что LeadCommentRepository.save() вызывается ровно один раз при успешном сценарии")
+    void addComment_whenSuccessful_shouldCallSaveExactlyOnce() {
+        Long leadId = 1L;
+        Long authorId = 10L;
+
+        when(leadRepository.findById(leadId)).thenReturn(Optional.of(existingLead));
+        when(userRepository.findById(authorId)).thenReturn(Optional.of(author));
+        when(leadCommentRepository.save(any(LeadComment.class))).thenReturn(savedComment);
+        when(leadCommentMapper.toResponse(savedComment)).thenReturn(commentResponse);
+
+        leadService.addComment(leadId, commentRequest, authorId);
+
+        verify(leadCommentRepository, times(1)).save(any(LeadComment.class));
+    }
+
+    @Test
+    @DisplayName("Проверка, что LeadCommentRepository.save() не вызывается, если лид не найден")
+    void addComment_whenLeadNotFound_shouldNotCallSave() {
+        Long leadId = 999L;
+        Long authorId = 10L;
+
+        when(leadRepository.findById(leadId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> leadService.addComment(leadId, commentRequest, authorId))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(leadCommentRepository, never()).save(any(LeadComment.class));
+        verify(leadCommentMapper, never()).toResponse(any(LeadComment.class));
     }
 }

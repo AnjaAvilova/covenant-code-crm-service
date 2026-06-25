@@ -1,15 +1,22 @@
 package com.covenantcode.crm.service.impl;
 
+import com.covenantcode.crm.dto.lead.LeadCommentCreateRequest;
+import com.covenantcode.crm.dto.lead.LeadCommentResponse;
 import com.covenantcode.crm.dto.lead.LeadConvertRequest;
 import com.covenantcode.crm.dto.lead.LeadCreateRequest;
 import com.covenantcode.crm.dto.lead.LeadResponse;
 import com.covenantcode.crm.dto.student.StudentResponse;
 import com.covenantcode.crm.entity.Lead;
+import com.covenantcode.crm.entity.LeadComment;
+import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.Student;
 import com.covenantcode.crm.entity.enums.LeadStatus;
 import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
+import com.covenantcode.crm.mapper.LeadCommentMapper;
 import com.covenantcode.crm.mapper.LeadMapper;
+import com.covenantcode.crm.repository.*;
+import com.covenantcode.crm.repository.*;
 import com.covenantcode.crm.mapper.StudentMapper;
 import com.covenantcode.crm.repository.*;
 import com.covenantcode.crm.service.LeadService;
@@ -29,6 +36,8 @@ public class LeadServiceImpl implements LeadService {
     private final CourseRepository courseRepository;
     private final UserRepository userRepository;
     private final LeadMapper leadMapper;
+    private final LeadCommentRepository leadCommentRepository;
+    private final LeadCommentMapper leadCommentMapper;
 
     private final StudentRepository studentRepository;
     private final StudentMapper studentMapper;
@@ -126,5 +135,23 @@ public class LeadServiceImpl implements LeadService {
         leadRepository.save(lead);
 
         return studentMapper.toResponse(savedStudent);
+    }
+
+    @Override
+    @Transactional
+    public LeadCommentResponse addComment(Long leadId, LeadCommentCreateRequest request, Long authorId) {
+        Lead lead = leadRepository.findById(leadId).orElseThrow(() -> new ResourceNotFoundException("Lead", leadId));
+
+        User user = userRepository.findById(authorId).orElseThrow(() -> new ResourceNotFoundException("User", authorId));
+
+        LeadComment leadComment = LeadComment.builder()
+                .lead(lead)
+                .author(user)
+                .text(request.getText())
+                .build();
+
+        LeadComment savedComment = leadCommentRepository.save(leadComment);
+
+        return leadCommentMapper.toResponse(savedComment);
     }
 }

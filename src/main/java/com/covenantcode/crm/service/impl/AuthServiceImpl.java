@@ -16,7 +16,9 @@ import com.covenantcode.crm.service.AuthService;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -87,5 +89,41 @@ public class AuthServiceImpl implements AuthService {
                 .lastName(user.getLastName())
                 .role(user.getRole().getName().name())
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Long getAuthenticatedUserId(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new IllegalStateException("User is not authenticated");
+        }
+
+        Object principal = authentication.getPrincipal();
+
+        if (principal instanceof User user) {
+            return user.getId();
+        }
+
+        if (principal instanceof UserDetails userDetails) {
+            String email = userDetails.getUsername();
+            return userRepository.findByEmail(email)
+                    .map(User::getId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
+        }
+
+        if (principal instanceof String email) {
+            return userRepository.findByEmail(email)
+                    .map(User::getId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
+        }
+        throw new IllegalStateException("Unsupported principal type: " + principal.getClass());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public User getAuthenticatedUser(Authentication authentication) {
+        Long userId = getAuthenticatedUserId(authentication);
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
     }
 }
