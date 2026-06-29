@@ -36,6 +36,9 @@ import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -566,4 +569,151 @@ class LeadServiceImplTest {
         verify(leadCommentRepository, never()).save(any(LeadComment.class));
         verify(leadCommentMapper, never()).toResponse(any(LeadComment.class));
     }
+
+    @Test
+    @DisplayName("Возвращает список комментариев для существующего лида, отсортированных по createdAt ASC")
+    void getComments_shouldReturnSortedComments_whenLeadExists() {
+        // Arrange
+        Long leadId = 1L;
+
+        // Создаем два комментария с разными датами (старый и новый)
+        LeadComment oldComment = LeadComment.builder()
+                .id(200L)
+                .lead(existingLead)
+                .author(author)
+                .text("Old comment")
+                .createdAt(OffsetDateTime.now().minusDays(1)) // Старый (первый в сортировке)
+                .build();
+
+        LeadComment newComment = LeadComment.builder()
+                .id(100L)  // ID из savedComment
+                .lead(existingLead)
+                .author(author)
+                .text("Test comment text")  // Текст из savedComment
+                .createdAt(OffsetDateTime.now())  // Новый (второй в сортировке)
+                .build();
+
+        // Настраиваем mock для отображения комментариев в обратном порядке (сперва старый)
+        when(leadRepository.existsById(leadId)).thenReturn(true);
+        when(leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId))
+                .thenReturn(List.of(oldComment, newComment));
+
+        // Mock для отображения
+        LeadCommentResponse oldResponse = LeadCommentResponse.builder()
+                .id(200L)
+                .leadId(leadId)
+                .author(new UserShortResponse(author.getId(), author.getFirstName(), author.getLastName()))
+                .text("Old comment")
+                .createdAt(oldComment.getCreatedAt().toLocalDateTime())
+                .build();
+
+        LeadCommentResponse newResponse = LeadCommentResponse.builder()
+                .id(100L)
+                .leadId(leadId)
+                .author(new UserShortResponse(author.getId(), author.getFirstName(), author.getLastName()))
+                .text("Test comment text")
+                .createdAt(newComment.getCreatedAt().toLocalDateTime())
+                .build();
+
+        when(leadCommentMapper.toResponse(oldComment)).thenReturn(oldResponse);
+        when(leadCommentMapper.toResponse(newComment)).thenReturn(newResponse);
+
+        // Act
+        List<LeadCommentResponse> result = leadService.getComments(leadId);
+
+        // Assert
+        assertThat(result).isNotNull().hasSize(2);
+
+        // Проверяем, что старый комментарий первый (сортировка по возрастанию createdAt)
+        assertThat(result.get(0).getId()).isEqualTo(200L);  // Старый (первый)
+        assertThat(result.get(1).getId()).isEqualTo(100L);  // Новый (второй)
+
+        // Проверка вызовов
+        verify(leadRepository, times(1)).existsById(leadId);
+        verify(leadCommentRepository, times(1)).findByLeadIdOrderByCreatedAtAsc(leadId);
+        verify(leadCommentMapper, times(1)).toResponse(oldComment);
+        verify(leadCommentMapper, times(1)).toResponse(newComment);
+    }
+
+    @Test
+    @DisplayName("Возвращает пустой список комментариев, если у лида их нет")
+    void getComments_shouldReturnEmptyList_whenNoComments() {
+        // Arrange
+        Long leadId = 1L;
+        when(leadRepository.existsById(leadId)).thenReturn(true);
+        when(leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId))
+                .thenReturn(Collections.emptyList());
+
+        // Act
+        List<LeadCommentResponse> result = leadService.getComments(leadId);
+
+        // Assert
+        assertThat(result).isEmpty();
+        verify(leadCommentRepository, times(1)).findByLeadIdOrderByCreatedAtAsc(leadId);
+        verify(leadCommentMapper, never()).toResponse(any(LeadComment.class)); // Маппер не вызывается
+    }
+
+    @Test
+    @DisplayName("Бросает ResourceNotFoundException, если лид не найден")
+    void getComments_shouldThrowException_whenLeadNotFound() {
+        // Arrange
+        Long leadId = 999L;
+        when(leadRepository.existsById(leadId)).thenReturn(false);
+
+        // Act & Assert
+        assertThatThrownBy(() -> leadService.getComments(leadId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Lead with ID " + leadId + " not found");
+
+        // Проверяем, что репозиторий не вызывался
+        verify(leadRepository, times(1)).existsById(leadId);
+        verify(leadCommentRepository, never()).findByLeadIdOrderByCreatedAtAsc(leadId);
+    }
+
+
+    @Test
+    void getComments_shouldThrowIllegalArgumentException_whenInvalidLeadId() {
+        assertThatThrownBy(() -> leadService.getComments(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("ID must be positive");
+
+        assertThatThrownBy(() -> leadService.getComments(-1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("ID must be positive");
+
+        verifyNoInteractions(leadRepository, leadCommentRepository);
+    }
+
+    @Test
+    @DisplayName("Проверяет, что findByLeadIdOrderByCreatedAtAsc вызывается ровно один раз при успешном сценарии")
+    void getComments_shouldCallFindByLeadIdOnce_whenLeadExists() {
+        // Arrange
+        Long leadId = 1L;
+        when(leadRepository.existsById(leadId)).thenReturn(true);
+        when(leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId))
+                .thenReturn(List.of(savedComment));
+        when(leadCommentMapper.toResponse(savedComment)).thenReturn(commentResponse);
+
+        // Act
+        leadService.getComments(leadId);
+
+        // Assert
+        verify(leadCommentRepository, times(1)).findByLeadIdOrderByCreatedAtAsc(leadId);
+    }
+    @Test
+    @DisplayName("Не вызывается findByLeadIdOrderByCreatedAtAsc, если лид не найден")
+    void getComments_shouldNotCallFindByLeadId_whenLeadNotFound() {
+        // Arrange
+        Long leadId = 999L;
+        when(leadRepository.existsById(leadId)).thenReturn(false);
+
+        // Act
+        assertThatThrownBy(() -> leadService.getComments(leadId))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        // Assert
+        verify(leadRepository, times(1)).existsById(leadId);
+        verify(leadCommentRepository, never()).findByLeadIdOrderByCreatedAtAsc(leadId);
+    }
 }
+

@@ -9,9 +9,12 @@ import com.covenantcode.crm.dto.lead.LeadCommentResponse;
 import com.covenantcode.crm.dto.lead.LeadCreateRequest;
 import com.covenantcode.crm.dto.lead.LeadResponse;
 import com.covenantcode.crm.dto.student.StudentResponse;
+import com.covenantcode.crm.entity.LeadComment;
 import com.covenantcode.crm.entity.enums.LeadStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+
+import java.util.List;
 
 public interface LeadService {
 
@@ -30,4 +33,6 @@ public interface LeadService {
     LeadCommentResponse addComment(Long leadId, LeadCommentCreateRequest request, Long authorId);
 
     StudentResponse convertToStudent(Long leadId, LeadConvertRequest request);
+
+    List<LeadCommentResponse> getComments(Long leadId);
 }

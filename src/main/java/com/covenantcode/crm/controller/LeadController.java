@@ -30,6 +30,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
+
 @RestController
 @RequestMapping("/api/v1/leads")
 @RequiredArgsConstructor
@@ -132,6 +135,19 @@ public class LeadController {
         LeadCommentResponse response = leadService.addComment(id, request, authorId);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/{id}/comments")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Получение комментариев для лида")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Found comments"),
+            @ApiResponse(responseCode = "401", description = "Доступ запрещён (требуется ADMIN или MANAGER)"),
+            @ApiResponse(responseCode = "403", description = "Доступ запрещён (требуется ADMIN или MANAGER)"),
+            @ApiResponse(responseCode = "404", description = "Лид с указанным id не найден")
+    })
+    public ResponseEntity<List<LeadCommentResponse>> getComments(@PathVariable Long id) {
+        return ResponseEntity.ok(leadService.getComments(id));
     }
 }
 

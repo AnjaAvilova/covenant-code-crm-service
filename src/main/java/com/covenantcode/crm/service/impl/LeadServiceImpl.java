@@ -1,10 +1,6 @@
 package com.covenantcode.crm.service.impl;
 
-import com.covenantcode.crm.dto.lead.LeadCommentCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadCommentResponse;
-import com.covenantcode.crm.dto.lead.LeadConvertRequest;
-import com.covenantcode.crm.dto.lead.LeadCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadResponse;
+import com.covenantcode.crm.dto.lead.*;
 import com.covenantcode.crm.dto.student.StudentResponse;
 import com.covenantcode.crm.entity.Lead;
 import com.covenantcode.crm.entity.LeadComment;
@@ -28,6 +24,10 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 public class LeadServiceImpl implements LeadService {
@@ -41,6 +41,8 @@ public class LeadServiceImpl implements LeadService {
 
     private final StudentRepository studentRepository;
     private final StudentMapper studentMapper;
+//    private final LeadCommentRepository leadCommentRepository;
+
 
     @Override
     @Transactional
@@ -154,4 +156,22 @@ public class LeadServiceImpl implements LeadService {
 
         return leadCommentMapper.toResponse(savedComment);
     }
+
+
+
+    @Override
+    public List<LeadCommentResponse> getComments(Long leadId) {
+        if (leadId == null || leadId <= 0) {
+            throw new IllegalArgumentException("ID must be positive");
+        }
+        if (!leadRepository.existsById(leadId)) {
+            throw new ResourceNotFoundException("Lead with ID " + leadId + " not found");
+        }
+        return leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId)
+                .stream()
+                .map(leadCommentMapper::toResponse)
+                .toList();
+    }
 }
+
+
