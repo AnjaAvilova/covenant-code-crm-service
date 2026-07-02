@@ -12,5 +12,5 @@ public interface CourseService {
     CourseResponse getById(Long id);
     void delete(Long id);
     CourseResponse update(Long id, CourseUpdateRequest request);
-    Page<CourseResponse> getAll(CourseStatus status, Pageable pageable);
+    Page<CourseResponse> getAll(String search, CourseStatus status, Pageable pageable);
 }

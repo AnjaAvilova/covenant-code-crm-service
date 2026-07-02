@@ -12,6 +12,7 @@ import com.covenantcode.crm.mapper.CourseMapper;
 import com.covenantcode.crm.repository.CourseRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -20,16 +21,28 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+
 
 @ExtendWith(MockitoExtension.class)
 public class CourseServiceImplTest {
@@ -265,48 +278,109 @@ public class CourseServiceImplTest {
         verify(courseRepository, never()).save(any());
     }
 
-    //тесты для getAll
     @Test
-    void getAll_withoutFilter_returnsAllCourses() {
-        Course c1 = new Course(); c1.setId(1L); c1.setStatus(CourseStatus.ACTIVE);
-        Course c2 = new Course(); c2.setId(2L); c2.setStatus(CourseStatus.ARCHIVED);
-        Page<Course> page = new PageImpl<>(List.of(c1, c2));
+    @DisplayName("Получение списка курсов — без поиска и статуса возвращаются все курсы")
+    void findAll_whenSearchNullAndStatusNull_returnsAllCoursesWithoutFiltering() {
+        Pageable pageable = PageRequest.of(0, 10);
 
-        when(courseRepository.findAll(any(Pageable.class))).thenReturn(page);
-        when(courseMapper.toResponse(any())).thenReturn(new CourseResponse());
+        Course course1 = course(1L, "Java Basics", CourseStatus.ACTIVE);
+        Course course2 = course(2L, "Spring Boot", CourseStatus.ARCHIVED);
 
-        Page<CourseResponse> result = courseService.getAll(null, Pageable.unpaged());
+        Page<Course> expectedPage = new PageImpl<>(List.of(course1, course2), pageable, 2);
 
-        assertEquals(2, result.getTotalElements());
-        verify(courseRepository).findAll(any(Pageable.class));
-        verify(courseRepository, never()).findAllByStatus(any(), any());
+        when(courseRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(expectedPage);
+
+        Page<CourseResponse> result = courseService.getAll(null, null, pageable);
+
+        assertThat(result.getContent()).hasSize(2);
+        verify(courseRepository).findAll(any(Specification.class), eq(pageable));
     }
 
     @Test
-    void getAll_withActiveFilter_returnsOnlyActiveCourses() {
-        Course c = new Course(); c.setId(1L); c.setStatus(CourseStatus.ACTIVE);
-        Page<Course> page = new PageImpl<>(List.of(c));
+    @DisplayName("Получение списка курсов — поиск только по названию, если статус не указан")
+    void findAll_whenSearchJavaAndStatusNull_filtersOnlyByText() {
+        Pageable pageable = PageRequest.of(0, 10);
 
-        when(courseRepository.findAllByStatus(eq(CourseStatus.ACTIVE), any(Pageable.class))).thenReturn(page);
-        CourseResponse response = CourseResponse.builder().id(1L).status("ACTIVE").build();
-        when(courseMapper.toResponse(any())).thenReturn(response);
+        Course course = course(1L, "Java Basics", CourseStatus.ACTIVE);
+        Page<Course> expectedPage = new PageImpl<>(List.of(course), pageable, 1);
 
-        Page<CourseResponse> result = courseService.getAll(CourseStatus.ACTIVE, Pageable.unpaged());
+        when(courseRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(expectedPage);
+        when(courseMapper.toResponse(any(Course.class))).thenReturn(
+                CourseResponse.builder()
+                        .id(1L)
+                        .title("Java Basics")
+                        .status(CourseStatus.ACTIVE.name())
+                        .build()
+        );
 
-        assertEquals(1, result.getTotalElements());
-        assertEquals("ACTIVE", result.getContent().get(0).getStatus());
-        verify(courseRepository).findAllByStatus(eq(CourseStatus.ACTIVE), any(Pageable.class));
-        verify(courseRepository, never()).findAll(any(Pageable.class));
+        Page<CourseResponse> result = courseService.getAll("java", null, pageable);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getTitle()).containsIgnoringCase("java");
+        verify(courseRepository).findAll(any(Specification.class), eq(pageable));
+        verify(courseMapper).toResponse(any(Course.class));
     }
 
     @Test
-    void getAll_withArchivedFilter_emptyResult() {
-        when(courseRepository.findAllByStatus(eq(CourseStatus.ARCHIVED), any(Pageable.class)))
-                .thenReturn(Page.empty());
+    @DisplayName("Получение списка курсов — фильтрация только по статусу, если поиск не задан")
+    void findAll_whenSearchNullAndStatusActive_filtersOnlyByStatus() {
+        Pageable pageable = PageRequest.of(0, 10);
 
-        Page<CourseResponse> result = courseService.getAll(CourseStatus.ARCHIVED, Pageable.unpaged());
-        assertEquals(0, result.getTotalElements());
-        verify(courseRepository, never()).findAll(any(Pageable.class));
+        Course course = course(1L, "Java Basics", CourseStatus.ACTIVE);
+        Page<Course> expectedPage = new PageImpl<>(List.of(course), pageable, 1);
+
+        when(courseRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(expectedPage);
+        when(courseMapper.toResponse(any(Course.class))).thenReturn(
+                CourseResponse.builder()
+                        .id(1L)
+                        .title("Java Basics")
+                        .status(CourseStatus.ACTIVE.name())
+                        .build()
+        );
+
+        Page<CourseResponse> result = courseService.getAll(null, CourseStatus.ACTIVE, pageable);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent()).allMatch(c -> c.getStatus().equals(CourseStatus.ACTIVE.name()));
+        verify(courseRepository).findAll(any(Specification.class), eq(pageable));
+        verify(courseMapper).toResponse(any(Course.class));
     }
 
+    @Test
+    @DisplayName("Получение списка курсов — поиск и статус применяются одновременно")
+    void findAll_whenSearchJavaAndStatusActive_appliesBothFilters() {
+        Pageable pageable = PageRequest.of(0, 10);
+
+        Course course = course(1L, "Java Basics", CourseStatus.ACTIVE);
+        Page<Course> expectedPage = new PageImpl<>(List.of(course), pageable, 1);
+
+        when(courseRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(expectedPage);
+        when(courseMapper.toResponse(any(Course.class))).thenReturn(
+                CourseResponse.builder()
+                        .id(1L)
+                        .title("Java Basics")
+                        .status(CourseStatus.ACTIVE.name())
+                        .build()
+        );
+
+        Page<CourseResponse> result = courseService.getAll("java", CourseStatus.ACTIVE, pageable);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getTitle()).containsIgnoringCase("java");
+        assertThat(result.getContent().get(0).getStatus()).isEqualTo(CourseStatus.ACTIVE.name());
+        verify(courseRepository).findAll(any(Specification.class), eq(pageable));
+        verify(courseMapper).toResponse(any(Course.class));
+    }
+
+    private Course course(Long id, String name, CourseStatus status) {
+        Course course = new Course();
+        course.setId(id);
+        course.setTitle(name);
+        course.setStatus(status);
+        return course;
+    }
 }

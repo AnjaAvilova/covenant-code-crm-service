@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -65,7 +66,7 @@ public class CourseController {
             @ApiResponse(responseCode = "404", description = "Курс не найден"),
             @ApiResponse(responseCode = "409", description = "У курса есть активные группы")
     })
-    void delete(@PathVariable Long id){
+    void delete(@PathVariable Long id) {
         courseService.delete(id);
     }
 
@@ -86,19 +87,18 @@ public class CourseController {
         return ResponseEntity.ok(courseService.update(id, request));
     }
 
-
     @GetMapping
-    @Operation(summary = "Получение списка курсов с пагинацией")
+    @Operation(summary = "Получение списка курсов с фильтрацией по статусу и поиску")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Список курсов успешно получен"),
-            @ApiResponse(responseCode = "401", description = "Не авторизован - отсутствует или невалидный JWT токен")
+            @ApiResponse(responseCode = "401", description = "Не авторизован")
     })
-    public Page<CourseResponse> getAll(@RequestParam(required = false) CourseStatus status,
-                                       @PageableDefault(size = 20) Pageable pageable) {
-        return courseService.getAll(status, pageable);
+    public Page<CourseResponse> getAll(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) CourseStatus status,
+            @ParameterObject @PageableDefault(size = 20) Pageable pageable
+    ) {
+        return courseService.getAll(search, status, pageable);
     }
-
-
-
 }
 

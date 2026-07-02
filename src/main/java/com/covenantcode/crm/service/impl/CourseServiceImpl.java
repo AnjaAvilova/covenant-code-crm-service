@@ -10,11 +10,13 @@ import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.CourseMapper;
 import com.covenantcode.crm.repository.CourseRepository;
+import com.covenantcode.crm.repository.CourseSpecification;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.service.CourseService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,14 +82,10 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<CourseResponse> getAll(CourseStatus status, Pageable pageable) {
-        Page<Course> coursePage;
+    public Page<CourseResponse> getAll(String search, CourseStatus status, Pageable pageable) {
+        Specification<Course> specification = CourseSpecification.withFilters(search, status);
 
-        if (status == null) {
-            coursePage = courseRepository.findAll(pageable);
-        } else {
-            coursePage = courseRepository.findAllByStatus(status, pageable);
-        }
-        return coursePage.map(courseMapper::toResponse);
+        return courseRepository.findAll(specification, pageable)
+                .map(courseMapper::toResponse);
     }
 }

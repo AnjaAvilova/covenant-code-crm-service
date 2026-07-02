@@ -21,6 +21,7 @@ import com.covenantcode.crm.repository.CourseRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -31,9 +32,16 @@ import java.util.HashSet;
 import java.util.Optional;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+
 
 @AutoConfigureMockMvc
 public class CourseControllerIntegrationTest extends BaseIntegrationTest {
@@ -58,12 +66,31 @@ public class CourseControllerIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
+
+        studyGroupRepository.deleteAll();
         courseRepository.deleteAll();
+
+        Course javaCourse = new Course();
+        javaCourse.setTitle("Java Backend");
+        javaCourse.setStatus(CourseStatus.ACTIVE);
+        javaCourse.setPrice(BigDecimal.valueOf(10000));
+        javaCourse.setDurationInWeeks(12);
+        courseRepository.save(javaCourse);
+
+        Course pythonCourse = new Course();
+        pythonCourse.setTitle("English Speaking");
+        pythonCourse.setStatus(CourseStatus.ACTIVE);
+        pythonCourse.setPrice(BigDecimal.valueOf(5000));
+        pythonCourse.setDurationInWeeks(8);
+        pythonCourse.setDescription("Description for English");
+
+        courseRepository.save(pythonCourse);
     }
 
     @AfterEach
     void tearDown() {
         studyGroupRepository.deleteAll();
+        courseRepository.deleteAll();
     }
 
     @Test
@@ -431,6 +458,7 @@ public class CourseControllerIntegrationTest extends BaseIntegrationTest {
     @WithMockUser(roles = "MANAGER")
     void getAll_withoutFilter_returns200WithAllCourses() throws Exception {
 
+        courseRepository.deleteAll();
         courseRepository.save(buildCourse("Java", CourseStatus.ACTIVE));
         courseRepository.save(buildCourse("English", CourseStatus.ARCHIVED));
         courseRepository.save(buildCourse("Python", CourseStatus.ACTIVE));
@@ -445,6 +473,9 @@ public class CourseControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("GET /api/v1/courses - фильтр status=ACTIVE - только активные")
     @WithMockUser(roles = "MANAGER")
     void getAll_withActiveFilter_returnsOnlyActive() throws Exception {
+
+        courseRepository.deleteAll();
+
         courseRepository.save(buildCourse("Java", CourseStatus.ACTIVE));
         courseRepository.save(buildCourse("English", CourseStatus.ARCHIVED));
 
@@ -486,4 +517,45 @@ public class CourseControllerIntegrationTest extends BaseIntegrationTest {
         return course;
     }
 
+    @Test
+    @DisplayName("Поиск по title — находит курс")
+    @WithMockUser(roles = "USER")
+    void shouldFindCourseByTitle() throws Exception {
+        mockMvc.perform(get("/api/v1/courses")
+                        .param("search", "java")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title", containsString("Java")));
+    }
+
+    @Test
+    @DisplayName("Поиск с search и status, без совпадений — пустой результат")
+    @WithMockUser(roles = "USER")
+    void shouldReturnEmptyWhenSearchAndStatusDoNotMatch() throws Exception {
+        mockMvc.perform(get("/api/v1/courses")
+                        .param("search", "java")
+                        .param("status", "ARCHIVED")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("Запрос без параметров — возвращает все курсы")
+    @WithMockUser(roles = "USER")
+    void shouldReturnAllCoursesWithoutParams() throws Exception {
+        mockMvc.perform(get("/api/v1/courses")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2));
+    }
+
+    @Test
+    @DisplayName("Запрос без токена — 401 Unauthorized")
+    void shouldReturnUnauthorizedWithoutToken() throws Exception {
+        mockMvc.perform(get("/api/v1/courses")
+                        .param("search", "java"))
+                .andExpect(status().isUnauthorized());
+    }
 }
