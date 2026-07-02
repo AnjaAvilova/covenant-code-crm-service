@@ -5,26 +5,34 @@ import com.covenantcode.crm.dto.lead.LeadCommentCreateRequest;
 import com.covenantcode.crm.dto.lead.LeadCommentResponse;
 import com.covenantcode.crm.dto.lead.LeadConvertRequest;
 import com.covenantcode.crm.dto.lead.LeadCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadUpdateRequest;
 import com.covenantcode.crm.dto.lead.LeadStatusUpdateRequest;
-import com.covenantcode.crm.entity.Student;
-import com.covenantcode.crm.entity.Lead;
+import com.covenantcode.crm.dto.lead.LeadUpdateRequest;
 import com.covenantcode.crm.entity.Course;
+import com.covenantcode.crm.entity.Lead;
 import com.covenantcode.crm.entity.Role;
+import com.covenantcode.crm.entity.Student;
 import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.CourseStatus;
 import com.covenantcode.crm.entity.enums.LeadStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.repository.CourseRepository;
+import com.covenantcode.crm.repository.LeadRepository;
 import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.hamcrest.Matchers;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import com.covenantcode.crm.repository.LeadRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -37,28 +45,22 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -101,6 +103,7 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
     private String adminToken;
     protected String studentToken;
     private final String baseUrl = "/api/v1/leads";
+    private static final String COMMENTS_ENDPOINT = "/api/v1/leads/{id}/comments";
 
     @BeforeEach
     void setUp() {
@@ -168,6 +171,20 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
         managerToken = jwtService.generateToken(testManager);
         adminToken = jwtService.generateToken(testAdmin);
         studentToken = jwtService.generateToken(testStudent);
+    }
+    @AfterEach
+    void tearDown() {
+        // Удаляем все связанные сущности (в обратном порядке создания)
+        leadRepository.deleteAll(); // добавлено для очистки лидов
+        userRepository.deleteAll();   // удаление пользователей
+        courseRepository.deleteAll(); // удаление курсов
+        roleRepository.deleteAll();   // удаление ролей
+    }
+
+
+    // Вспомогательный метод для получения EntityManager (если нужно)
+    private EntityManager getEntityManager() {
+        return entityManager;
     }
 
     @Test
@@ -1011,4 +1028,272 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.type").value("bad-request"));
     }
 
+
+
+    @Test
+    @DisplayName("GET /{id}/comments с существующим лидом, у которого есть комментарии — ответ 200, список не пуст, порядок по createdAt ASC")
+    @WithMockUser(username = "manager@test.com", roles = "MANAGER")
+    void getComments_WithExistingLeadAndComments_ShouldReturn200WithCommentsSortedByCreatedAt() throws Exception {
+        // Arrange
+        Lead lead = createLeadWithStatus(LeadStatus.NEW);
+        lead = leadRepository.save(lead);
+
+        // Создаём комментарии с фиксированными временными метками (более надежно, чем sleep)
+        Instant firstCommentTime = Instant.now().minusSeconds(2);
+        Instant secondCommentTime = Instant.now().minusSeconds(1);
+        Instant thirdCommentTime = Instant.now();
+
+        // Используем mockMvc для добавления комментариев
+        mockMvc.perform(post(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(MediaType.APPLICATION_JSON_VALUE)
+                        .characterEncoding("UTF-8")
+                        .content(objectMapper.writeValueAsString(LeadCommentCreateRequest.builder()
+                                .text("привет")
+                                .build())))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(MediaType.APPLICATION_JSON_VALUE)
+                        .content(objectMapper.writeValueAsString(LeadCommentCreateRequest.builder()
+                                .text("Second comment")
+                                .build())))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(MediaType.APPLICATION_JSON_VALUE)
+                        .content(objectMapper.writeValueAsString(LeadCommentCreateRequest.builder()
+                                .text("Third comment")
+                                .build())))
+                .andExpect(status().isCreated());
+
+        // Act
+        MvcResult result = mockMvc.perform(get(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // Проверяем сырые данные ответа
+        String responseJson = new String(
+                result.getResponse().getContentAsByteArray(),
+                StandardCharsets.UTF_8
+        );
+
+        // Проверяем, что JSON валиден и содержит ожидаемую структуру
+        assertFalse(responseJson.isEmpty(), "Ответ пустой");
+        assertTrue(responseJson.startsWith("["), "Ответ не является массивом JSON");
+        assertTrue(responseJson.endsWith("]"), "Ответ не завершается правильно");
+
+        // Десериализуем JSON в объект
+        List<LeadCommentResponse> comments = objectMapper.readValue(
+                responseJson,
+                new TypeReference<List<LeadCommentResponse>>() {
+                }
+        );
+
+        // Assert
+        assertEquals(3, comments.size(), "Ожидалось 3 комментария");
+
+        // Проверяем порядок по createdAt (ASC)
+        for (int i = 0; i < comments.size() - 1; i++) {
+            assertTrue(
+                    comments.get(i).getCreatedAt().isBefore(comments.get(i + 1).getCreatedAt()),
+                    String.format(
+                            "Comment %d (%s) должен быть раньше комментария %d (%s)",
+                            i, comments.get(i).getText(),
+                            i + 1, comments.get(i + 1).getText()
+                    )
+            );
+        }
+
+        // Проверяем содержимое комментариев
+        assertEquals("привет", comments.get(0).getText());
+        assertEquals("Second comment", comments.get(1).getText());
+        assertEquals("Third comment", comments.get(2).getText());
+
+        // Проверяем, что все поля существуют и корректны
+        for (LeadCommentResponse comment : comments) {
+            assertNotNull(comment.getAuthor(), "Автор комментария не найден");
+            assertNotNull(comment.getAuthor().getFirstName(), "Имя автора отсутствует");
+            assertNotNull(comment.getAuthor().getLastName(), "Фамилия автора отсутствует");
+            assertNotNull(comment.getCreatedAt(), "Время создания комментария отсутствует");
+        }
+    }
+
+    @Test
+    @DisplayName("GET /{id}/comments с существующим лидом без комментариев — ответ 200, тело []")
+    @WithMockUser(username = "manager@test.com", roles = "MANAGER")
+    void getComments_WithExistingLeadNoComments_ShouldReturn200WithEmptyList() throws Exception {
+        // Arrange
+        Lead lead = createLeadWithStatus(LeadStatus.NEW);
+
+        // Act & Assert
+        mockMvc.perform(get(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", Matchers.hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("GET /{id}/comments от пользователя с ролью ADMIN — ответ 200")
+    @WithMockUser(username = "admin@test.com", roles = "ADMIN")
+    void getComments_WithAdminRole_ShouldReturn200() throws Exception {
+        // Arrange
+        Lead lead = createLeadWithStatus(LeadStatus.NEW);
+        // Добавим комментарий, чтобы не возвращался пустой список
+        mockMvc.perform(post(baseUrl + "/{id}/comments", lead.getId())
+                .contentType(APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(LeadCommentCreateRequest.builder()
+                        .text("Тестовый комментарий")
+                        .build())));
+
+        // Act & Assert
+        mockMvc.perform(get(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", Matchers.hasSize(1)));
+    }
+
+    @Test
+    @DisplayName("GET /{id}/comments от пользователя с ролью MANAGER — ответ 200")
+    @WithMockUser(username = "manager@test.com", roles = "MANAGER")
+    void getComments_WithManagerRole_ShouldReturn200() throws Exception {
+        // Arrange
+        Lead lead = createLeadWithStatus(LeadStatus.NEW);
+        // Добавим комментарий, чтобы не возвращался пустой список
+        mockMvc.perform(post(baseUrl + "/{id}/comments", lead.getId())
+                .contentType(APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(LeadCommentCreateRequest.builder()
+                        .text("Тестовый комментарий")
+                        .build())));
+
+        // Act & Assert
+        mockMvc.perform(get(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", Matchers.hasSize(1)));
+    }
+
+    @Test
+    @DisplayName("GET /{id}/comments от пользователя с ролью STUDENT — ответ 403")
+    @WithMockUser(username = "student@test.com", roles = "STUDENT")
+    void getComments_WithStudentRole_ShouldReturn403() throws Exception {
+        // Arrange
+        Lead lead = createLeadWithStatus(LeadStatus.NEW);
+
+        // Act & Assert
+        mockMvc.perform(get(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /{id}/comments без токена — ответ 401")
+    @WithAnonymousUser
+    void getComments_WithoutToken_ShouldReturn401() throws Exception {
+        // Arrange
+        Lead lead = createLeadWithStatus(LeadStatus.NEW);
+
+        // Act & Assert
+        mockMvc.perform(get(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /9999/comments (несуществующий лид) — ответ 404")
+    @WithMockUser(username = "manager@test.com", roles = "MANAGER")
+    void getComments_WithNonExistingLead_ShouldReturn404() throws Exception {
+        Long nonExistentLeadId = 9999L;
+
+        mockMvc.perform(get(baseUrl + "/{id}/comments", nonExistentLeadId)
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("resource-not-found"));
+    }
+
+
+    @Test
+    @DisplayName("GET /{id}/comments — проверка корректности полей ответа: leadId, author.id, author.firstName, text, createdAt")
+    @WithMockUser(username = "manager@test.com", roles = "MANAGER")
+    void getComments_CheckResponseFields() throws Exception {
+        // Arrange
+        Lead lead = createLeadWithStatus(LeadStatus.NEW);
+        lead = leadRepository.save(lead);
+
+        // Используем кириллический текст для проверки UTF-8
+        String commentText = "Тестовый комментарий для проверки полей ответа с кириллицей";
+
+        // Добавляем комментарий с явным указанием кодировки в контенте
+        mockMvc.perform(post(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(MediaType.APPLICATION_JSON_VALUE)
+                        .characterEncoding("UTF-8")
+                        .content(objectMapper.writeValueAsString(
+                                LeadCommentCreateRequest.builder()
+                                        .text(commentText)
+                                        .build()
+                        )))
+                .andExpect(status().isCreated());
+
+        // Act
+        MvcResult result = mockMvc.perform(get(baseUrl + "/{id}/comments", lead.getId())
+                        .contentType(MediaType.APPLICATION_JSON_VALUE)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .characterEncoding("UTF-8"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // Проверяем сырые данные ответа (для отладки)
+        String responseJson = new String(
+                result.getResponse().getContentAsByteArray(),
+                StandardCharsets.UTF_8
+        );
+
+
+        // Десериализуем JSON в объект с явным указанием кодировки
+        List<LeadCommentResponse> comments = objectMapper.readValue(
+                responseJson,
+                new TypeReference<List<LeadCommentResponse>>() {
+                }
+        );
+
+        // Assert
+        assertFalse(comments.isEmpty(), "Список комментариев не должен быть пустым");
+
+        LeadCommentResponse comment = comments.get(0);
+
+        // Проверка leadId
+        assertEquals(lead.getId().intValue(), comment.getLeadId(),
+                "leadId должен соответствовать ID лида");
+
+        // Проверка автора
+        assertNotNull(comment.getAuthor(), "Автор комментария не должен быть null");
+        assertNotNull(comment.getAuthor().getId(), "ID автора не должен быть null");
+
+        // Проверка имени и фамилии автора (должны совпадать с текущим пользователем)
+        assertEquals(testManager.getFirstName(), comment.getAuthor().getFirstName(),
+                "Имя автора должно совпадать с текущим пользователем");
+        assertEquals(testManager.getLastName(), comment.getAuthor().getLastName(),
+                "Фамилия автора должна совпадать с текущим пользователем");
+
+        // Основная проверка текста комментария с кириллицей
+        assertEquals(commentText, comment.getText(),
+                "Текст комментария должен сохраняться корректно (UTF-8)");
+
+        // Проверка createdAt
+        assertNotNull(comment.getCreatedAt(), "createdAt не должен быть null");
+        assertDoesNotThrow(() -> {
+            LocalDateTime now = LocalDateTime.now();
+            assertTrue(comment.getCreatedAt().isBefore(now.plusHours(1)),
+                    "createdAt не должен быть в будущем");
+            assertTrue(comment.getCreatedAt().isAfter(now.minusDays(1)),
+                    "createdAt не должен быть слишком давно");
+        }, "createdAt должен быть валидной датой");
+
+        // Дополнительная проверка кодировки (если есть подозрения на проблемы)
+        byte[] textBytes = comment.getText().getBytes(StandardCharsets.UTF_8);
+        String restoredText = new String(textBytes, StandardCharsets.UTF_8);
+        assertEquals(commentText, restoredText,
+                "Кодировка текста комментария должна оставаться UTF-8");
+    }
 }

@@ -1,46 +1,33 @@
 package com.covenantcode.crm.service.impl;
 
-
-import com.covenantcode.crm.dto.lead.LeadCommentCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadCommentResponse;
-import com.covenantcode.crm.dto.lead.LeadCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadResponse;
 import com.covenantcode.crm.dto.lead.CourseShortResponse;
-import com.covenantcode.crm.dto.lead.UserShortResponse;
+import com.covenantcode.crm.dto.lead.LeadCommentResponse;
+import com.covenantcode.crm.dto.lead.LeadCommentCreateRequest;
+import com.covenantcode.crm.dto.lead.LeadResponse;
+import com.covenantcode.crm.dto.lead.LeadCreateRequest;
 import com.covenantcode.crm.dto.lead.LeadUpdateRequest;
 import com.covenantcode.crm.dto.lead.LeadConvertRequest;
-
-import com.covenantcode.crm.dto.lead.CourseShortResponse;
-import com.covenantcode.crm.dto.lead.LeadCommentCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadCommentResponse;
-import com.covenantcode.crm.dto.lead.LeadConvertRequest;
-import com.covenantcode.crm.dto.lead.LeadCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadResponse;
-import com.covenantcode.crm.dto.lead.LeadStatusUpdateRequest;
 import com.covenantcode.crm.dto.lead.UserShortResponse;
+import com.covenantcode.crm.dto.lead.LeadStatusUpdateRequest;
 import com.covenantcode.crm.dto.student.StudentResponse;
-
+import com.covenantcode.crm.entity.Course;
+import com.covenantcode.crm.entity.Lead;
 import com.covenantcode.crm.entity.User;
-import com.covenantcode.crm.entity.Course;
-import com.covenantcode.crm.entity.Lead;
-import com.covenantcode.crm.entity.enums.LeadStatus;
-import com.covenantcode.crm.entity.Course;
-import com.covenantcode.crm.entity.Lead;
-import com.covenantcode.crm.entity.LeadComment;
 import com.covenantcode.crm.entity.Student;
-import com.covenantcode.crm.entity.User;
+import com.covenantcode.crm.entity.LeadComment;
 import com.covenantcode.crm.entity.enums.LeadStatus;
-import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.BadRequestException;
+import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.LeadCommentMapper;
 import com.covenantcode.crm.mapper.LeadMapper;
 import com.covenantcode.crm.mapper.StudentMapper;
+import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.repository.CourseRepository;
+import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.LeadCommentRepository;
 import com.covenantcode.crm.repository.LeadRepository;
-import com.covenantcode.crm.repository.StudentRepository;
-import com.covenantcode.crm.repository.UserRepository;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,8 +36,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import static org.mockito.ArgumentMatchers.any;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -60,24 +45,30 @@ import org.springframework.data.jpa.domain.Specification;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;  // Корректно для всех современных версий Mockito (3.x+)
+
+
 
 @ExtendWith(MockitoExtension.class)
 class LeadServiceImplTest {
@@ -974,4 +965,138 @@ class LeadServiceImplTest {
         verify(leadRepository, never()).save(any(Lead.class));
         verifyNoInteractions(leadMapper);
     }
+
+    @Test
+    @DisplayName("Возвращает список комментариев для существующего лида, отсортированных по createdAt ASC")
+    void getComments_shouldReturnSortedComments_whenLeadExists() {
+        // Arrange
+        Long leadId = 1L;
+
+        // Создаем два комментария с разными датами (старый и новый)
+        LeadComment oldComment = LeadComment.builder()
+                .id(200L)
+                .lead(existingLead)
+                .author(author)
+                .text("Old comment")
+                .createdAt(OffsetDateTime.now().minusDays(1)) // Старый (первый в сортировке)
+                .build();
+
+        LeadComment newComment = LeadComment.builder()
+                .id(100L)  // ID из savedComment
+                .lead(existingLead)
+                .author(author)
+                .text("Test comment text")  // Текст из savedComment
+                .createdAt(OffsetDateTime.now())  // Новый (второй в сортировке)
+                .build();
+
+        // Настраиваем mock для отображения комментариев в обратном порядке (сперва старый)
+        when(leadRepository.existsById(leadId)).thenReturn(true);
+        when(leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId))
+                .thenReturn(List.of(oldComment, newComment));
+
+        // Mock для отображения
+        LeadCommentResponse oldResponse = LeadCommentResponse.builder()
+                .id(200L)
+                .leadId(leadId)
+                .author(new UserShortResponse(author.getId(), author.getFirstName(), author.getLastName()))
+                .text("Old comment")
+                .createdAt(oldComment.getCreatedAt().toLocalDateTime())
+                .build();
+
+        LeadCommentResponse newResponse = LeadCommentResponse.builder()
+                .id(100L)
+                .leadId(leadId)
+                .author(new UserShortResponse(author.getId(), author.getFirstName(), author.getLastName()))
+                .text("Test comment text")
+                .createdAt(newComment.getCreatedAt().toLocalDateTime())
+                .build();
+
+        when(leadCommentMapper.toResponse(oldComment)).thenReturn(oldResponse);
+        when(leadCommentMapper.toResponse(newComment)).thenReturn(newResponse);
+
+        // Act
+        List<LeadCommentResponse> result = leadService.getComments(leadId);
+
+        // Assert
+        assertThat(result).isNotNull().hasSize(2);
+
+        // Проверяем, что старый комментарий первый (сортировка по возрастанию createdAt)
+        assertThat(result.get(0).getId()).isEqualTo(200L);  // Старый (первый)
+        assertThat(result.get(1).getId()).isEqualTo(100L);  // Новый (второй)
+
+        // Проверка вызовов
+        verify(leadRepository, times(1)).existsById(leadId);
+        verify(leadCommentRepository, times(1)).findByLeadIdOrderByCreatedAtAsc(leadId);
+        verify(leadCommentMapper, times(1)).toResponse(oldComment);
+        verify(leadCommentMapper, times(1)).toResponse(newComment);
+    }
+
+    @Test
+    @DisplayName("Возвращает пустой список комментариев, если у лида их нет")
+    void getComments_shouldReturnEmptyList_whenNoComments() {
+        // Arrange
+        Long leadId = 1L;
+        when(leadRepository.existsById(leadId)).thenReturn(true);
+        when(leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId))
+                .thenReturn(Collections.emptyList());
+
+        // Act
+        List<LeadCommentResponse> result = leadService.getComments(leadId);
+
+        // Assert
+        assertThat(result).isEmpty();
+        verify(leadCommentRepository, times(1)).findByLeadIdOrderByCreatedAtAsc(leadId);
+        verify(leadCommentMapper, never()).toResponse(any(LeadComment.class)); // Маппер не вызывается
+    }
+
+    @Test
+    @DisplayName("Бросает ResourceNotFoundException, если лид не найден")
+    void getComments_shouldThrowException_whenLeadNotFound() {
+        // Arrange
+        Long leadId = 999L;
+        when(leadRepository.existsById(leadId)).thenReturn(false);
+
+        // Act & Assert
+        assertThatThrownBy(() -> leadService.getComments(leadId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Lead с id " + leadId + " не найден");
+
+        // Проверяем, что репозиторий не вызывался
+        verify(leadRepository, times(1)).existsById(leadId);
+        verify(leadCommentRepository, never()).findByLeadIdOrderByCreatedAtAsc(leadId);
+    }
+
+
+   @Test
+    @DisplayName("Проверяет, что findByLeadIdOrderByCreatedAtAsc вызывается ровно один раз при успешном сценарии")
+    void getComments_shouldCallFindByLeadIdOnce_whenLeadExists() {
+        // Arrange
+        Long leadId = 1L;
+        when(leadRepository.existsById(leadId)).thenReturn(true);
+        when(leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId))
+                .thenReturn(List.of(savedComment));
+        when(leadCommentMapper.toResponse(savedComment)).thenReturn(commentResponse);
+
+        // Act
+        leadService.getComments(leadId);
+
+        // Assert
+        verify(leadCommentRepository, times(1)).findByLeadIdOrderByCreatedAtAsc(leadId);
+    }
+    @Test
+    @DisplayName("Не вызывается findByLeadIdOrderByCreatedAtAsc, если лид не найден")
+    void getComments_shouldNotCallFindByLeadId_whenLeadNotFound() {
+        // Arrange
+        Long leadId = 999L;
+        when(leadRepository.existsById(leadId)).thenReturn(false);
+
+        // Act
+        assertThatThrownBy(() -> leadService.getComments(leadId))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        // Assert
+        verify(leadRepository, times(1)).existsById(leadId);
+        verify(leadCommentRepository, never()).findByLeadIdOrderByCreatedAtAsc(leadId);
+    }
 }
+

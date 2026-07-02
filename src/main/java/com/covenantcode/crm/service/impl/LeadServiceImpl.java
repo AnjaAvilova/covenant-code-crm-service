@@ -1,39 +1,43 @@
 package com.covenantcode.crm.service.impl;
 
+import com.covenantcode.crm.dto.lead.LeadResponse;
 import com.covenantcode.crm.dto.lead.LeadCommentCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadCommentResponse;
+import com.covenantcode.crm.dto.lead.LeadUpdateRequest;
 import com.covenantcode.crm.dto.lead.LeadConvertRequest;
 import com.covenantcode.crm.dto.lead.LeadCreateRequest;
-import com.covenantcode.crm.dto.lead.LeadResponse;
-import com.covenantcode.crm.dto.student.StudentResponse;
 import com.covenantcode.crm.dto.lead.LeadStatusUpdateRequest;
-import com.covenantcode.crm.entity.Lead;
-import com.covenantcode.crm.dto.lead.LeadUpdateRequest;
+import com.covenantcode.crm.dto.lead.LeadCommentResponse;
+import com.covenantcode.crm.dto.student.StudentResponse;
 import com.covenantcode.crm.entity.Course;
-import com.covenantcode.crm.entity.User;
+import com.covenantcode.crm.entity.Lead;
 import com.covenantcode.crm.entity.LeadComment;
-import com.covenantcode.crm.exception.BadRequestException;
 import com.covenantcode.crm.entity.Student;
+import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.LeadStatus;
+import com.covenantcode.crm.exception.BadRequestException;
 import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.LeadCommentMapper;
 import com.covenantcode.crm.mapper.LeadMapper;
 import com.covenantcode.crm.mapper.StudentMapper;
-import com.covenantcode.crm.repository.CourseRepository;
-import com.covenantcode.crm.repository.LeadCommentRepository;
 import com.covenantcode.crm.repository.LeadRepository;
-import com.covenantcode.crm.repository.LeadSpecifications;
-import com.covenantcode.crm.repository.StudentRepository;
+import com.covenantcode.crm.repository.LeadCommentRepository;
 import com.covenantcode.crm.repository.UserRepository;
+import com.covenantcode.crm.repository.StudentRepository;
+import com.covenantcode.crm.repository.LeadSpecifications;
+import com.covenantcode.crm.repository.CourseRepository;
+
 import com.covenantcode.crm.service.LeadService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.util.StringUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.util.List;
+
 
 @Service
 @RequiredArgsConstructor
@@ -213,6 +217,20 @@ public class LeadServiceImpl implements LeadService {
         lead.setStatus(request.getStatus());
         Lead updatedLead = leadRepository.save(lead);
         return leadMapper.toResponse(updatedLead);
-        }
+    }
 
+
+    @Transactional(readOnly = true)
+    @Override
+    public List<LeadCommentResponse> getComments(Long leadId) {
+        if (!leadRepository.existsById(leadId)) {
+            throw new ResourceNotFoundException("Lead с id " + leadId + " не найден");
+        }
+        return leadCommentRepository.findByLeadIdOrderByCreatedAtAsc(leadId)
+                .stream()
+                .map(leadCommentMapper::toResponse)
+                .toList();
+    }
 }
+
+

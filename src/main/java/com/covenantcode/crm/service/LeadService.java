@@ -12,6 +12,8 @@ import com.covenantcode.crm.entity.enums.LeadStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+
 public interface LeadService {
 
     LeadResponse create(LeadCreateRequest leadCreateRequest);
@@ -33,4 +35,5 @@ public interface LeadService {
     LeadResponse update(Long id, LeadUpdateRequest request);
 
     LeadResponse updateStatus(Long id, LeadStatusUpdateRequest request);
+    List<LeadCommentResponse> getComments(Long leadId);
 }
