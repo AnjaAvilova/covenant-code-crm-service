@@ -66,4 +66,16 @@ public class TeacherServiceImpl implements TeacherService {
         User savedUser = userRepository.saveAndFlush(user);
         return teacherMapper.toResponse(savedUser);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TeacherResponse getById(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Преподаватель с id " + id + " не найден"));
+
+       if(user.getRole().getName() !=RoleName.TEACHER){
+           throw new ResourceNotFoundException("Пользователь с id " + id + " не является преподавателем");
+        } return teacherMapper.toResponse(user);
+
+    }
 }
