@@ -18,6 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,5 +58,18 @@ public class TeacherController {
     public ResponseEntity<TeacherResponse> create(@Valid @RequestBody TeacherCreateRequest request) {
         TeacherResponse response = teacherService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TEACHER')")
+    @Operation(summary = "Получить преподавателя по id")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Преподаватель найден"),
+            @ApiResponse(responseCode = "401", description = "Не авторизован"),
+            @ApiResponse(responseCode = "403", description = "Доступ запрещён"),
+            @ApiResponse(responseCode = "404", description = "Преподаватель с id {id} не найден")
+    })
+    public ResponseEntity<TeacherResponse> getById(@PathVariable Long id){
+                return ResponseEntity.ok(teacherService.getById(id));
     }
 }

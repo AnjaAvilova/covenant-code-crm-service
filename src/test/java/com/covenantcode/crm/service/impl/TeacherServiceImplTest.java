@@ -6,6 +6,7 @@ import com.covenantcode.crm.entity.Role;
 import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.exception.ConflictException;
+import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.TeacherMapper;
 import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.UserRepository;
@@ -15,6 +16,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,9 +37,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+//import static org.assertj.core.api.Assertions;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -327,4 +329,66 @@ public class TeacherServiceImplTest {
         verify(userRepository, never()).saveAndFlush(any());
         verify(teacherMapper, never()).toResponse(any());
     }
+
+    @Test
+    @DisplayName("getById — успешное получение преподавателя")
+    void getById_whenTeacherExists_returnsTeacherResponse() {
+        // Arrange
+        Long teacherId = 1L;
+        when(userRepository.findById(teacherId)).thenReturn(Optional.of(testUser));
+        when(teacherMapper.toResponse(testUser)).thenReturn(testResponse);
+
+        // Act
+        TeacherResponse response = teacherService.getById(teacherId);
+
+        // Assert
+        assertThat(response).isEqualTo(testResponse);
+        verify(userRepository).findById(teacherId);
+        verify(teacherMapper).toResponse(testUser);
+    }
+
+    @Test
+    @DisplayName("getById — пользователь не найден")
+    void getById_whenUserNotFound_throwsResourceNotFoundException() {
+        // Arrange
+        Long nonExistentId = 999L;
+        when(userRepository.findById(nonExistentId)).thenReturn(Optional.empty());
+
+        // Act & Assert
+        assertThatThrownBy(() -> teacherService.getById(nonExistentId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Преподаватель с id " + nonExistentId + " не найден");
+
+        verify(userRepository).findById(nonExistentId);
+        verify(teacherMapper, never()).toResponse(any());
+    }
+
+    @Test
+    @DisplayName("getById — пользователь найден, но не TEACHER")
+    void getById_whenUserIsNotTeacher_throwsResourceNotFoundException() {
+        // Arrange
+        Long nonTeacherId = 2L;
+        Role studentRole = new Role();
+        studentRole.setName(RoleName.STUDENT);
+
+        User nonTeacherUser = User.builder()
+                .id(nonTeacherId)
+                .firstName("Алексей")
+                .lastName("Сидоров")
+                .email("student@example.com")
+                .role(studentRole)
+                .build();
+
+        when(userRepository.findById(nonTeacherId)).thenReturn(Optional.of(nonTeacherUser));
+
+        // Act & Assert
+        assertThatThrownBy(() -> teacherService.getById(nonTeacherId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Пользователь с id " + nonTeacherId + " не является преподавателем");
+
+        verify(userRepository).findById(nonTeacherId);
+        verify(teacherMapper, never()).toResponse(any());
+    }
+
 }
+
