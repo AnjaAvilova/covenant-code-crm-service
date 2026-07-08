@@ -8,12 +8,15 @@ import com.covenantcode.crm.exception.ForbiddenException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.UserMapper;
 import com.covenantcode.crm.repository.UserRepository;
+import com.covenantcode.crm.repository.UserSpecifications;
 import com.covenantcode.crm.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -23,8 +26,14 @@ public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
 
     @Override
-    public Page<UserResponse> getAll(Pageable pageable) {
-        Page<User> userPage = userRepository.findAll(pageable);
+    public Page<UserResponse> getAll(Pageable pageable, String search) {
+        if (!StringUtils.hasText(search)) {
+            Page<User> userPage = userRepository.findAll(pageable);
+            return userPage.map(userMapper::toResponse);
+        }
+
+        Specification<User> spec = UserSpecifications.searchByText(search);
+        Page<User> userPage = userRepository.findAll(spec, pageable);
         return userPage.map(userMapper::toResponse);
     }
 

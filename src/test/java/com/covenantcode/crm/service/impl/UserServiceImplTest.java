@@ -19,6 +19,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -26,6 +27,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -112,7 +114,7 @@ public class UserServiceImplTest {
         when(userMapper.toResponse(user1)).thenReturn(response1);
         when(userMapper.toResponse(user2)).thenReturn(response2);
 
-        Page<UserResponse> result = userService.getAll(pageable);
+        Page<UserResponse> result = userService.getAll(pageable, null);
 
         assertNotNull(result);
         assertEquals(2, result.getTotalElements());
@@ -135,7 +137,7 @@ public class UserServiceImplTest {
 
         when(userRepository.findAll(pageable)).thenReturn(emptyPage);
 
-        Page<UserResponse> result = userService.getAll(pageable);
+        Page<UserResponse> result = userService.getAll(pageable, null);
 
         assertNotNull(result);
         assertTrue(result.getContent().isEmpty());
@@ -320,5 +322,114 @@ public class UserServiceImplTest {
                 .doesNotThrowAnyException();
 
         verify(userRepository, times(2)).save(any(User.class));
+    }
+
+    @Test
+    public void getAll_whenSearchIsNull_thenFindAllWithoutSpecification() {
+        Page<User> emptyPage = new PageImpl<>(List.of(), pageable, 0);
+        when(userRepository.findAll(pageable)).thenReturn(emptyPage);
+
+        Page<UserResponse> result = userService.getAll(pageable, null);
+
+        assertNotNull(result);
+        assertTrue(result.getContent().isEmpty());
+
+        verify(userRepository).findAll(pageable);
+        verify(userRepository, never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void getAll_whenSearchIsValid_shouldCallFindAllWithSpecificationAndReturnFilteredResult() {
+        String search = "иван";
+
+        Role managerRole = new Role();
+        managerRole.setId(2L);
+        managerRole.setName(RoleName.MANAGER);
+
+        User user = User.builder()
+                .id(2L)
+                .firstName("Иван")
+                .lastName("Петров")
+                .email("ivan.petrov@company.ru")
+                .phone("+79161234567")
+                .role(managerRole)
+                .enabled(true)
+                .createdAt(now)
+                .build();
+
+        UserResponse response = UserResponse.builder()
+                .id(2L)
+                .firstName("Иван")
+                .lastName("Петров")
+                .email("ivan.petrov@company.ru")
+                .phone("+79161234567")
+                .role("MANAGER")
+                .enabled(true)
+                .createdAt(now.toString())
+                .build();
+
+        Page<User> userPage = new PageImpl<>(List.of(user), pageable, 1);
+
+        when(userRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(userPage);
+        when(userMapper.toResponse(user)).thenReturn(response);
+
+        Page<UserResponse> result = userService.getAll(pageable, search);
+
+        assertNotNull(result);
+        assertEquals(1, result.getTotalElements());
+        assertEquals(1, result.getContent().size());
+
+        UserResponse firstResponse = result.getContent().get(0);
+        assertEquals("Иван", firstResponse.getFirstName());
+        assertEquals("Петров", firstResponse.getLastName());
+        assertEquals("ivan.petrov@company.ru", firstResponse.getEmail());
+
+        verify(userRepository, times(1)).findAll(any(Specification.class), eq(pageable));
+        verify(userRepository, never()).findAll(pageable);
+        verify(userMapper, times(1)).toResponse(user);
+    }
+
+    @Test
+    void getAll_whenSearchIsEmptyString_shouldTreatAsNullAndCallFindAllWithoutSpecification() {
+        String search = "";
+
+        Role adminRole = new Role();
+        adminRole.setId(1L);
+        adminRole.setName(RoleName.ADMIN);
+
+        User user = User.builder()
+                .id(1L)
+                .firstName("Admin")
+                .lastName("System")
+                .email("admin@covenantcode.ru")
+                .role(adminRole)
+                .enabled(true)
+                .createdAt(now)
+                .build();
+
+        UserResponse response = UserResponse.builder()
+                .id(1L)
+                .firstName("Admin")
+                .lastName("System")
+                .email("admin@covenantcode.ru")
+                .role("ADMIN")
+                .enabled(true)
+                .createdAt(now.toString())
+                .build();
+
+        Page<User> userPage = new PageImpl<>(List.of(user), pageable, 1);
+
+        when(userRepository.findAll(pageable)).thenReturn(userPage);
+        when(userMapper.toResponse(user)).thenReturn(response);
+
+        Page<UserResponse> result = userService.getAll(pageable, search);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getEmail()).isEqualTo("admin@covenantcode.ru");
+
+        verify(userRepository, times(1)).findAll(pageable);
+        verify(userRepository, never()).findAll(any(Specification.class), any(Pageable.class));
+        verify(userMapper, times(1)).toResponse(user);
     }
 }

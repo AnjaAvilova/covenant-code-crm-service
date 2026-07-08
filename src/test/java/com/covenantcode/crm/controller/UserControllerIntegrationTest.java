@@ -12,10 +12,10 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -225,5 +225,54 @@ public class UserControllerIntegrationTest extends BaseIntegrationTest {
                         .content("{\"enabled\": false}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.type").value("resource-not-found"));
+    }
+
+    @Test
+    void getAllUsers_searchByName_findsMatch() throws Exception {
+        Role managerRole = roleRepository.findByName(RoleName.MANAGER).orElseThrow();
+
+        User ivan = User.builder()
+                .firstName("Иван")
+                .lastName("Петров")
+                .email("ivan.petrov@test.ru")
+                .password(passwordEncoder.encode("password123"))
+                .role(managerRole)
+                .enabled(true)
+                .build();
+        userRepository.save(ivan);
+
+        User alina = User.builder()
+                .firstName("Алина")
+                .lastName("Смирнова")
+                .email("alina.smirnova@test.ru")
+                .password(passwordEncoder.encode("password123"))
+                .role(managerRole)
+                .enabled(true)
+                .build();
+        userRepository.save(alina);
+
+        mockMvc.perform(get("/api/v1/users")
+                        .param("search", "иван")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].firstName").value("Иван"));
+    }
+
+    @Test
+    void getAllUsers_searchNoResults_emptyList() throws Exception {
+        mockMvc.perform(get("/api/v1/users")
+                        .param("search", "zzznobody")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    void getAllUsers_withoutSearchParam_returnsAllUsers() throws Exception {
+        mockMvc.perform(get("/api/v1/users")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements", greaterThanOrEqualTo(2)));
     }
 }

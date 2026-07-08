@@ -36,8 +36,9 @@ public class UserController {
             @ApiResponse(responseCode = "401", description = "Не авторизован - отсутствует или невалидный JWT токен"),
             @ApiResponse(responseCode = "403", description = "Доступ запрещён - у пользователя нет роли ADMIN")
     })
-    public Page<UserResponse> getAll(@PageableDefault(size = 20) Pageable pageable){
-        return userService.getAll(pageable);
+    public Page<UserResponse> getAll(@PageableDefault(size = 20) Pageable pageable,
+                                     @RequestParam(required = false) String search) {
+        return userService.getAll(pageable, search);
     }
 
     @GetMapping("/{id}")
@@ -67,7 +68,7 @@ public class UserController {
     public ResponseEntity<UserResponse> updateEnabled(
             @PathVariable Long id,
             @Valid @RequestBody EnabledUpdateRequest request,
-            Authentication authentication){
+            Authentication authentication) {
 
         Long currentUserID = Utils.extractId(authentication);
         UserResponse updateUser = userService.updateEnabled(id, request.getEnabled(), currentUserID);
