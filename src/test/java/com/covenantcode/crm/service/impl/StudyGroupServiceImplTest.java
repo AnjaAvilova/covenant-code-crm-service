@@ -1,5 +1,6 @@
 package com.covenantcode.crm.service.impl;
 
+import com.covenantcode.crm.dto.group.AddStudentToGroupRequest;
 import com.covenantcode.crm.dto.group.CourseShortResponse;
 import com.covenantcode.crm.dto.group.GroupStatusUpdateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupCreateRequest;
@@ -14,6 +15,7 @@ import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.GroupStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.exception.BadRequestException;
+import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.LessonMapper;
 import com.covenantcode.crm.mapper.StudentMapper;
@@ -967,5 +969,203 @@ class StudyGroupServiceImplTest {
                 .status(status)
                 .students(students != null ? new HashSet<>(students) : new HashSet<>())
                 .build();
+    }
+
+    @Test
+    @DisplayName("Успешное добавление студента в группу со статусом DRAFT")
+    void addStudent_toDraftGroup_shouldSucceed() {
+        Long groupId = 2L;
+        Long studentId = 101L;
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(studentId);
+
+        Student student = Student.builder()
+                .id(studentId)
+                .firstName("Петр")
+                .lastName("Петров")
+                .build();
+
+        StudyGroup group = group2;
+        group.setStudents(new HashSet<>());
+
+        StudyGroup savedGroup = group;
+        StudyGroupResponse expectedResponse = StudyGroupResponse.builder()
+                .id(groupId)
+                .name(group.getName())
+                .status(group.getStatus())
+                .build();
+
+        when(studyGroupRepository.findById(groupId)).thenReturn(Optional.of(group));
+        when(studentRepository.findById(studentId)).thenReturn(Optional.of(student));
+        when(studyGroupRepository.save(any(StudyGroup.class))).thenReturn(savedGroup);
+        when(studyGroupMapper.toResponse(savedGroup)).thenReturn(expectedResponse);
+
+        StudyGroupResponse response = studyGroupService.addStudent(groupId, request);
+
+        assertThat(response).isNotNull();
+        assertThat(group.getStudents()).contains(student);
+        verify(studyGroupRepository).findById(groupId);
+        verify(studentRepository).findById(studentId);
+        verify(studyGroupRepository).save(group);
+        verify(studyGroupMapper).toResponse(savedGroup);
+    }
+
+    @Test
+    @DisplayName("Успешное добавление студента в группу со статусом ACTIVE")
+    void addStudent_toActiveGroup_shouldSucceed() {
+        Long groupId = 1L;
+        Long studentId = 102L;
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(studentId);
+
+        Student student = Student.builder()
+                .id(studentId)
+                .firstName("Анна")
+                .lastName("Сидорова")
+                .build();
+
+        StudyGroup group = group1;
+        group.setStudents(new HashSet<>());
+
+        StudyGroup savedGroup = group;
+        StudyGroupResponse expectedResponse = StudyGroupResponse.builder()
+                .id(groupId)
+                .name(group.getName())
+                .status(group.getStatus())
+                .build();
+
+        when(studyGroupRepository.findById(groupId)).thenReturn(Optional.of(group));
+        when(studentRepository.findById(studentId)).thenReturn(Optional.of(student));
+        when(studyGroupRepository.save(any(StudyGroup.class))).thenReturn(savedGroup);
+        when(studyGroupMapper.toResponse(savedGroup)).thenReturn(expectedResponse);
+
+        StudyGroupResponse response = studyGroupService.addStudent(groupId, request);
+
+        assertThat(response).isNotNull();
+        assertThat(group.getStudents()).contains(student);
+        verify(studyGroupRepository).findById(groupId);
+        verify(studentRepository).findById(studentId);
+        verify(studyGroupRepository).save(group);
+        verify(studyGroupMapper).toResponse(savedGroup);
+    }
+
+    @Test
+    @DisplayName("Группа не найдена → ResourceNotFoundException")
+    void addStudent_groupNotFound_shouldThrowResourceNotFound() {
+        Long groupId = 999L;
+        Long studentId = 101L;
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(studentId);
+
+        when(studyGroupRepository.findById(groupId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> studyGroupService.addStudent(groupId, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("StudyGroup")
+                .hasMessageContaining(groupId.toString());
+
+        verify(studyGroupRepository).findById(groupId);
+        verify(studentRepository, never()).findById(any());
+        verify(studyGroupRepository, never()).save(any());
+        verifyNoInteractions(studyGroupMapper);
+    }
+
+    @Test
+    @DisplayName("Студент не найден → ResourceNotFoundException")
+    void addStudent_studentNotFound_shouldThrowResourceNotFound() {
+        Long groupId = 2L;
+        Long studentId = 999L;
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(studentId);
+
+        StudyGroup group = group2;
+        group.setStudents(new HashSet<>());
+
+        when(studyGroupRepository.findById(groupId)).thenReturn(Optional.of(group));
+        when(studentRepository.findById(studentId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> studyGroupService.addStudent(groupId, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Student")
+                .hasMessageContaining(studentId.toString());
+
+        verify(studyGroupRepository).findById(groupId);
+        verify(studentRepository).findById(studentId);
+        verify(studyGroupRepository, never()).save(any());
+        verifyNoInteractions(studyGroupMapper);
+    }
+
+    @Test
+    @DisplayName("Студент уже состоит в группе → ConflictException")
+    void addStudent_alreadyInGroup_shouldThrowConflict() {
+        Long groupId = 2L;
+        Long studentId = 101L;
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(studentId);
+
+        Student student = Student.builder()
+                .id(studentId)
+                .firstName("Петр")
+                .lastName("Петров")
+                .build();
+
+        StudyGroup group = group2;
+        group.setStudents(new HashSet<>(Set.of(student)));
+
+        when(studyGroupRepository.findById(groupId)).thenReturn(Optional.of(group));
+        when(studentRepository.findById(studentId)).thenReturn(Optional.of(student));
+
+        assertThatThrownBy(() -> studyGroupService.addStudent(groupId, request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("уже состоит в этой группе")
+                .hasMessageContaining(studentId.toString());
+
+        verify(studyGroupRepository).findById(groupId);
+        verify(studentRepository).findById(studentId);
+        verify(studyGroupRepository, never()).save(any());
+        verifyNoInteractions(studyGroupMapper);
+    }
+
+    @Test
+    @DisplayName("Группа в статусе COMPLETED → BadRequestException")
+    void addStudent_groupCompleted_shouldThrowBadRequest() {
+        Long groupId = 3L;
+        Long studentId = 101L;
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(studentId);
+
+        StudyGroup group = group3;
+        group.setStudents(new HashSet<>());
+
+        when(studyGroupRepository.findById(groupId)).thenReturn(Optional.of(group));
+
+        assertThatThrownBy(() -> studyGroupService.addStudent(groupId, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("COMPLETED");
+
+        verify(studyGroupRepository).findById(groupId);
+        verify(studentRepository, never()).findById(any());
+        verify(studyGroupRepository, never()).save(any());
+        verifyNoInteractions(studyGroupMapper);
+    }
+
+    @Test
+    @DisplayName("Группа в статусе CANCELLED → BadRequestException")
+    void addStudent_groupCancelled_shouldThrowBadRequest() {
+        Long groupId = 4L;
+        Long studentId = 101L;
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(studentId);
+
+        StudyGroup group = StudyGroup.builder()
+                .id(groupId)
+                .name("Отменённая группа")
+                .status(GroupStatus.CANCELLED)
+                .students(new HashSet<>())
+                .build();
+
+        when(studyGroupRepository.findById(groupId)).thenReturn(Optional.of(group));
+
+        assertThatThrownBy(() -> studyGroupService.addStudent(groupId, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("CANCELLED");
+
+        verify(studyGroupRepository).findById(groupId);
+        verify(studentRepository, never()).findById(any());
+        verify(studyGroupRepository, never()).save(any());
+        verifyNoInteractions(studyGroupMapper);
     }
 }

@@ -1,6 +1,7 @@
 package com.covenantcode.crm.controller;
 
 import com.covenantcode.crm.BaseIntegrationTest;
+import com.covenantcode.crm.dto.group.AddStudentToGroupRequest;
 import com.covenantcode.crm.dto.group.GroupStatusUpdateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupCreateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupUpdateRequest;
@@ -81,6 +82,9 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
     private User admin;
     private Role adminRole;
     private User teacher2;
+    private StudyGroup group1;
+    private StudyGroup group2;
+    private StudyGroup group3;
 
     @BeforeEach
     void setUp() {
@@ -171,7 +175,7 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
                 .phone("987654321")
                 .build());
 
-        StudyGroup group1 = StudyGroup.builder()
+        group1 = StudyGroup.builder()
                 .name("Morning Java")
                 .course(testCourse)
                 .teacher(teacher)
@@ -180,7 +184,7 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
                 .students(new HashSet<>(Set.of(student1, student2)))
                 .build();
 
-        StudyGroup group2 = StudyGroup.builder()
+        group2 = StudyGroup.builder()
                 .name("Evening Java")
                 .course(testCourse)
                 .teacher(teacher)
@@ -189,7 +193,7 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
                 .students(new HashSet<>(Set.of(student2)))
                 .build();
 
-        StudyGroup group3 = StudyGroup.builder()
+        group3 = StudyGroup.builder()
                 .name("Advanced Java")
                 .course(testCourse)
                 .teacher(teacher)
@@ -829,5 +833,65 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.type").value("resource-not-found"));
+    }
+
+    @Test
+    @WithMockUser(roles = "MANAGER")
+    @DisplayName("Успешное добавление студента в группу → 200, студент присутствует в списке")
+    void addStudent_Success_shouldReturn200() throws Exception {
+        Long groupId = group2.getId();
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(student1.getId());
+        String requestJson = objectMapper.writeValueAsString(request);
+
+        mockMvc.perform(post("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(groupId))
+                .andExpect(jsonPath("$.students[*].id").value(org.hamcrest.Matchers.hasItem(student1.getId().intValue())));
+    }
+
+    @Test
+    @WithMockUser(roles = "MANAGER")
+    @DisplayName("Студент уже в группе → 409 Conflict")
+    void addStudent_StudentAlreadyInGroup_shouldReturn409() throws Exception {
+        Long groupId = group1.getId();
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(student1.getId());
+        String requestJson = objectMapper.writeValueAsString(request);
+
+        mockMvc.perform(post("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("conflict"));
+    }
+
+    @Test
+    @WithMockUser(roles = "MANAGER")
+    @DisplayName("Группа в финальном статусе COMPLETED → 400 BadRequest")
+    void addStudent_GroupCompleted_shouldReturn400() throws Exception {
+        Long groupId = group3.getId();
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(student1.getId());
+        String requestJson = objectMapper.writeValueAsString(request);
+
+        mockMvc.perform(post("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("bad-request"));
+    }
+
+    @Test
+    @WithMockUser(roles = "TEACHER")
+    @DisplayName("TEACHER не может добавить студента → 403 Forbidden")
+    void addStudent_TeacherRole_shouldReturn403() throws Exception {
+        Long groupId = group2.getId();
+        AddStudentToGroupRequest request = new AddStudentToGroupRequest(student1.getId());
+        String requestJson = objectMapper.writeValueAsString(request);
+
+        mockMvc.perform(post("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isForbidden());
     }
 }

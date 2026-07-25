@@ -1,5 +1,6 @@
 package com.covenantcode.crm.controller;
 
+import com.covenantcode.crm.dto.group.AddStudentToGroupRequest;
 import com.covenantcode.crm.dto.group.GroupStatusUpdateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupCreateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupResponse;
@@ -196,5 +197,27 @@ public class StudyGroupController {
     public void removeStudent(@PathVariable("id") Long groupId,
                               @PathVariable Long studentId){
         studyGroupService.removeStudent(groupId, studentId);
+    }
+
+    @Operation(
+            summary = "Добавить студента в группу",
+            description = "Добавляет существующего студента в учебную группу. Доступно для ADMIN и MANAGER."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Студент добавлен, возвращена обновлённая группа",
+                    content = @Content(schema = @Schema(implementation = StudyGroupResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Группа в финальном статусе или ошибка валидации"),
+            @ApiResponse(responseCode = "401", description = "Не авторизован"),
+            @ApiResponse(responseCode = "403", description = "Нет прав доступа"),
+            @ApiResponse(responseCode = "404", description = "Группа или студент не найдены"),
+            @ApiResponse(responseCode = "409", description = "Студент уже состоит в группе")
+    })
+    @PostMapping("/{id}/students")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<StudyGroupResponse> addStudent(
+            @Parameter(description = "ID группы") @PathVariable Long id,
+            @Valid @RequestBody AddStudentToGroupRequest request) {
+        StudyGroupResponse response = studyGroupService.addStudent(id, request);
+        return ResponseEntity.ok(response);
     }
 }
