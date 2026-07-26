@@ -3,10 +3,18 @@ package com.covenantcode.crm.controller;
 import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
 import com.covenantcode.crm.service.LessonService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -17,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -26,12 +35,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class LessonController {
 
     private final LessonService lessonService;
-
-    @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TEACHER')")
-    public ResponseEntity<Page<LessonResponse>> getAll(Pageable pageable) {
-        return ResponseEntity.ok(lessonService.getAll(pageable));
-    }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
@@ -60,5 +63,40 @@ public class LessonController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         lessonService.delete(id);
+    }
+
+    @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TEACHER')")
+    @Operation(
+            summary = "Получить список занятий",
+            description = "Возвращает пагинированный список занятий. Администраторы и менеджеры видят все занятия, преподаватели — только свои."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Список занятий успешно получен",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = Page.class))
+            ),
+            @ApiResponse(responseCode = "401", description = "Пользователь не аутентифицирован", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Доступ запрещен (недостаточно прав)", content = @Content)
+    })
+    public ResponseEntity<Page<LessonResponse>> getAll(
+            @Parameter(description = "Идентификатор учебной группы")
+            @RequestParam(required = false) Long groupId,
+
+            @Parameter(description = "Идентификатор преподавателя")
+            @RequestParam(required = false) Long teacherId,
+
+            @Parameter(description = "Нижняя граница даты проведения (включительно), формат YYYY-MM-DD")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+
+            @Parameter(description = "Верхняя граница даты проведения (включительно), формат YYYY-MM-DD")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+
+            @Parameter(description = "Параметры пагинации и сортировки (page, size, sort)")
+            Pageable pageable
+    ) {
+        Page<LessonResponse> response = lessonService.getAll(groupId, teacherId, dateFrom, dateTo, pageable);
+        return ResponseEntity.ok(response);
     }
 }
