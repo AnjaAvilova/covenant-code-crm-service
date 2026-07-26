@@ -2,13 +2,12 @@ package com.covenantcode.crm.service;
 
 import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
+import java.time.LocalDate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 
 public interface LessonService {
-
-    Page<LessonResponse> getAll(Pageable pageable);
 
     LessonResponse getById(Long id);
 
@@ -18,4 +17,6 @@ public interface LessonService {
 
     void delete(Long id);
 
+    Page<LessonResponse> getAll(Long groupId, Long TeacherId, LocalDate dateFrom,
+                                LocalDate dateTo, Pageable pageable);
 }
