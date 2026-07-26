@@ -1,5 +1,6 @@
 package com.covenantcode.crm.service;
 
+import com.covenantcode.crm.dto.group.AddStudentToGroupRequest;
 import com.covenantcode.crm.dto.group.GroupStatusUpdateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupCreateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupResponse;
@@ -31,5 +32,7 @@ public interface StudyGroupService{
     StudyGroupResponse getById(Long id, User currentUser);
 
     void removeStudent(Long groupId, Long studentId);
+
+    StudyGroupResponse addStudent(Long groupId, AddStudentToGroupRequest request);
 
 }

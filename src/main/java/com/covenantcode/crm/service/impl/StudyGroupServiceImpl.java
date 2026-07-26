@@ -1,5 +1,6 @@
 package com.covenantcode.crm.service.impl;
 
+import com.covenantcode.crm.dto.group.AddStudentToGroupRequest;
 import com.covenantcode.crm.dto.group.GroupStatusUpdateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupCreateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupResponse;
@@ -13,6 +14,7 @@ import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.GroupStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.exception.BadRequestException;
+import com.covenantcode.crm.exception.ConflictException;
 import com.covenantcode.crm.exception.ForbiddenException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.LessonMapper;
@@ -273,5 +275,29 @@ public class StudyGroupServiceImpl implements StudyGroupService {
         group.getStudents().remove(student);
 
         studyGroupRepository.save(group);
+    }
+
+    @Override
+    @Transactional
+    public StudyGroupResponse addStudent(Long groupId, AddStudentToGroupRequest request) {
+        StudyGroup group = studyGroupRepository.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("StudyGroup с id " + groupId + " не найдена"));
+
+        GroupStatus status = group.getStatus();
+        if (status == GroupStatus.COMPLETED || status == GroupStatus.CANCELLED) {
+            throw new BadRequestException("Нельзя добавить студента в группу в статусе " + status);
+        }
+
+        Long studentId = request.getStudentId();
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student с id " + studentId + " не найден"));
+
+        if (group.getStudents().contains(student)) {
+            throw new ConflictException("Студент с id " + studentId + " уже состоит в этой группе");
+        }
+
+        group.getStudents().add(student);
+        StudyGroup savedGroup = studyGroupRepository.save(group);
+        return studyGroupMapper.toResponse(savedGroup);
     }
 }
