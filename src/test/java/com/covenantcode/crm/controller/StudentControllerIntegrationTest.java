@@ -3,23 +3,22 @@ package com.covenantcode.crm.controller;
 import com.covenantcode.crm.BaseIntegrationTest;
 import com.covenantcode.crm.dto.student.StudentCreateRequest;
 import com.covenantcode.crm.dto.student.StudentUpdateRequest;
-import com.covenantcode.crm.entity.Role;
-import com.covenantcode.crm.entity.Student;
-import com.covenantcode.crm.entity.User;
-import com.covenantcode.crm.entity.StudyGroup;
 import com.covenantcode.crm.entity.Course;
+import com.covenantcode.crm.entity.User;
+import com.covenantcode.crm.entity.Student;
+import com.covenantcode.crm.entity.StudyGroup;
+import com.covenantcode.crm.entity.Role;
 import com.covenantcode.crm.entity.enums.CourseStatus;
 import com.covenantcode.crm.entity.enums.GroupStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
+import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.UserRepository;
-import com.covenantcode.crm.repository.StudyGroupRepository;
-import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.CourseRepository;
+import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,9 +29,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-
-import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -41,19 +39,18 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.hamcrest.Matchers.containsString;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 @Transactional
 class StudentControllerIntegrationTest extends BaseIntegrationTest {
@@ -99,10 +96,15 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // Создаём все необходимые роли
+        createRolesIfNotExists();
 
-        Role adminRole = getOrCreateRole(RoleName.ADMIN);
-        Role teacherRole = getOrCreateRole(RoleName.TEACHER);
-        Role studentRole = getOrCreateRole(RoleName.STUDENT);
+        Role adminRole = roleRepository.findByName(RoleName.ADMIN)
+                .orElseThrow(() -> new RuntimeException("ADMIN role not found"));
+        Role teacherRole = roleRepository.findByName(RoleName.TEACHER)
+                .orElseThrow(() -> new RuntimeException("TEACHER role not found"));
+        Role studentRole = roleRepository.findByName(RoleName.STUDENT)
+                .orElseThrow(() -> new RuntimeException("STUDENT role not found"));
 
         adminUser = userRepository.save(User.builder()
                 .firstName("Admin44").lastName("User33").email("adminwwwest@test.ru")
@@ -150,6 +152,15 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
         studentToken = jwtService.generateToken(studentUser);
     }
 
+    private void createRolesIfNotExists() {
+        for (RoleName roleName : RoleName.values()) {
+            if (!roleRepository.findByName(roleName).isPresent()) {
+                Role role = Role.builder().name(roleName).build();
+                roleRepository.save(role);
+            }
+        }
+    }
+
     private Role getOrCreateRole(RoleName roleName) {
         return roleRepository.findByName(roleName)
                 .orElseGet(() -> roleRepository.save(Role.builder().name(roleName).build()));
@@ -166,7 +177,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Тест 1: ADMIN получает любого студента (200)")
     void adminGetsAnyStudent_shouldReturn200() throws Exception {
-
         mockMvc.perform(get("/api/v1/students/{id}", student.getId())
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
@@ -176,7 +186,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Тест 2: TEACHER получает студента из своей группы (200)")
     void teacherGetsStudentFromHisGroup_shouldReturn200() throws Exception {
-
         mockMvc.perform(get("/api/v1/students/{id}", student.getId())
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isOk());
@@ -185,7 +194,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Тест 3: TEACHER получает студента из чужой группы (403)")
     void teacherGetsStudentFromAnotherGroup_shouldReturn403() throws Exception {
-
         User otherTeacher = userRepository.save(User.builder()
                 .firstName("Other")
                 .lastName("Teacher")
@@ -225,14 +233,13 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(get("/api/v1/students/{id}", 9999L)
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.type").value("resource-not-found"));
+                .andExpect(jsonPath("$.type").value("resource-not-found"));
     }
 
     @Test
     @DisplayName("Тест 1: успешное создание студента без привязки к пользователю (роль ADMIN)")
     @WithMockUser(roles = "ADMIN")
     void create_ShouldReturnCreated_WhenValidRequestNoUserId() throws Exception {
-
         studyGroupRepository.deleteAll();
         studentRepository.deleteAll();
 
@@ -250,18 +257,15 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/v1/students")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.firstName").value("Иван"))
                 .andExpect(jsonPath("$.lastName").value("Иванов"))
                 .andExpect(jsonPath("$.email").value(email));
 
         List<Student> students = studentRepository.findAll();
-
         assertThat(students).hasSize(1);
 
         Student savedStudent = students.getFirst();
-
         assertThat(savedStudent.getFirstName()).isEqualTo("Иван");
         assertThat(savedStudent.getLastName()).isEqualTo("Иванов");
         assertThat(savedStudent.getEmail()).isEqualTo(email);
@@ -274,7 +278,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Тест 2: ошибка 404, если указанный userId не существует")
     @WithMockUser(roles = "MANAGER")
     void create_ShouldReturnNotFound_WhenUserDoesNotExist() throws Exception {
-
         Long nonExistentUserId = 999L;
         StudentCreateRequest request = StudentCreateRequest.builder()
                 .firstName("Петр")
@@ -293,11 +296,8 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Тест 3: ошибка 409, если пользователь уже привязан к другому студенту")
     @WithMockUser(roles = "ADMIN")
     void create_ShouldReturnConflict_WhenUserAlreadyLinked() throws Exception {
-
-        Role studentRole = roleRepository.findByName(RoleName.STUDENT).orElseGet(() ->
-                roleRepository.save(Role.builder()
-                        .name(RoleName.STUDENT)
-                        .build()));
+        Role studentRole = roleRepository.findByName(RoleName.STUDENT)
+                .orElseGet(() -> roleRepository.save(Role.builder().name(RoleName.STUDENT).build()));
 
         User existingUser = userRepository.save(User.builder()
                 .firstName("User")
@@ -331,7 +331,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Тест 4: ошибка 403, если студент создается пользователем с ролью TEACHER")
     @WithMockUser(roles = "TEACHER")
     void create_ShouldReturnForbidden_WhenRoleIsTeacher() throws Exception {
-
         StudentCreateRequest request = StudentCreateRequest.builder()
                 .firstName("Access")
                 .lastName("Denied")
@@ -347,25 +346,21 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("GET /api/v1/students — список всех студентов (200)")
     @WithMockUser(username = "manager@example.com", roles = "MANAGER")
     void getAllStudents_WithoutFilters_ShouldReturnAllStudents() throws Exception {
-
         studyGroupRepository.deleteAll();
         studentRepository.deleteAll();
         userRepository.deleteAll();
         courseRepository.deleteAll();
 
-        Role rolemanager = roleRepository.findByName(RoleName.MANAGER).orElseGet(() ->
-                roleRepository.save(Role.builder()
-                        .name(RoleName.MANAGER)
-                        .build()));
+        Role managerRole = getOrCreateRole(RoleName.MANAGER);
 
         User manager = User.builder()
                 .firstName("Manager")
                 .lastName("Test")
                 .email("manager@example.com")
                 .password("password")
-                .role(rolemanager)
+                .role(managerRole)
+                .enabled(true)
                 .build();
-
         userRepository.save(manager);
 
         Student student1 = Student.builder()
@@ -418,17 +413,23 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("GET /api/v1/students?search=Смир — поиск по частичному имени (200)")
     @WithMockUser(username = "manager@example.com", roles = "MANAGER")
     void getAllStudents_SearchByPartialName_ShouldReturnFilteredStudents() throws Exception {
+        studyGroupRepository.deleteAll();
+        studentRepository.deleteAll();
+        userRepository.deleteAll();
+        courseRepository.deleteAll();
 
-        Role managerRole = roleRepository.findByName(RoleName.MANAGER).orElseThrow();
+        Role managerRole = getOrCreateRole(RoleName.MANAGER);
+
         User manager = User.builder()
                 .firstName("Manager")
                 .lastName("Test")
                 .email("manager@example.com")
                 .password("password")
                 .role(managerRole)
+                .enabled(true)
                 .build();
-
         userRepository.save(manager);
+
         Student student1 = Student.builder()
                 .firstName("Алиса")
                 .lastName("Смирнова")
@@ -480,24 +481,30 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                         student2.getId().intValue(),
                         student4.getId().intValue()
                 )))
-                .andExpect(jsonPath("$.content[*].lastName", Matchers.not(containsString("Петрова"))));
+                .andExpect(jsonPath("$.content[*].lastName", not(containsString("Петрова"))));
     }
 
     @Test
     @DisplayName("GET /api/v1/students?search=7916 — поиск по телефону (200)")
     @WithMockUser(username = "manager@example.com", roles = "MANAGER")
     void getAllStudents_SearchByPhone_ShouldReturnFilteredStudents() throws Exception {
+        studyGroupRepository.deleteAll();
+        studentRepository.deleteAll();
+        userRepository.deleteAll();
+        courseRepository.deleteAll();
 
-        Role managerRole = roleRepository.findByName(RoleName.MANAGER).orElseThrow();
+        Role managerRole = getOrCreateRole(RoleName.MANAGER);
+
         User manager = User.builder()
                 .firstName("Manager")
                 .lastName("Test")
                 .email("manager@example.com")
                 .password("password")
                 .role(managerRole)
+                .enabled(true)
                 .build();
-
         userRepository.save(manager);
+
         Student student1 = Student.builder()
                 .firstName("Алиса")
                 .lastName("Смирнова")
@@ -542,7 +549,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("GET /api/v1/students — TEACHER имеет доступ к списку своих студентов")
     @WithMockUser(username = "teacher1@mail.com", roles = "TEACHER")
     void getAllStudents_WithTeacherRole_ShouldReturnOnlyOwnStudents() throws Exception {
-
         studyGroupRepository.deleteAll();
         studentRepository.deleteAll();
         userRepository.deleteAll();
@@ -557,7 +563,7 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
         courseRepository.save(course);
 
         Role teacherRole = roleRepository.findByName(RoleName.TEACHER)
-                .orElseThrow();
+                .orElseThrow(() -> new RuntimeException("TEACHER role not found"));
 
         User teacher1 = User.builder()
                 .firstName("Teacher")
@@ -565,7 +571,9 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                 .email("teacher1@mail.com")
                 .password("password")
                 .role(teacherRole)
+                .enabled(true)
                 .build();
+        userRepository.save(teacher1);
 
         User teacher2 = User.builder()
                 .firstName("Teacher")
@@ -573,9 +581,8 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                 .email("teacher2@mail.com")
                 .password("password")
                 .role(teacherRole)
+                .enabled(true)
                 .build();
-
-        userRepository.save(teacher1);
         userRepository.save(teacher2);
 
         Student ownStudent = Student.builder()
@@ -584,6 +591,7 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                 .email("own@student.com")
                 .phone("+111111111")
                 .build();
+        studentRepository.save(ownStudent);
 
         Student otherStudent = Student.builder()
                 .firstName("Student")
@@ -591,8 +599,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                 .email("other@student.com")
                 .phone("+222222222")
                 .build();
-
-        studentRepository.save(ownStudent);
         studentRepository.save(otherStudent);
 
         StudyGroup ownGroup = StudyGroup.builder()
@@ -603,6 +609,7 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                 .status(GroupStatus.ACTIVE)
                 .students(new HashSet<>(Set.of(ownStudent)))
                 .build();
+        studyGroupRepository.save(ownGroup);
 
         StudyGroup otherGroup = StudyGroup.builder()
                 .name("Teacher 2 Group")
@@ -612,8 +619,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                 .status(GroupStatus.COMPLETED)
                 .students(new HashSet<>(Set.of(otherStudent)))
                 .build();
-
-        studyGroupRepository.save(ownGroup);
         studyGroupRepository.save(otherGroup);
 
         mockMvc.perform(get("/api/v1/students")
@@ -753,7 +758,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Тест 1: успешное удаление студента (204)")
     void deleteStudent_ShouldReturn204_WhenStudentNotInActiveGroup() throws Exception {
-
         Student studentToDelete = Student.builder()
                 .firstName("Test")
                 .lastName("Student")
@@ -788,7 +792,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Тест 3: студент в активной группе (409)")
     void deleteStudent_ShouldReturn409_WhenStudentInActiveGroup() throws Exception {
-
         Student studentInGroup = Student.builder()
                 .firstName("Group")
                 .lastName("Student")
@@ -815,14 +818,12 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.type", is("conflict")))
                 .andExpect(jsonPath("$.detail", containsString("активной учебной группе")));
 
-
         assertThat(studentRepository.findById(studentInGroup.getId())).isPresent();
     }
 
     @Test
     @DisplayName("Тест 4: MANAGER не может удалить студента (403)")
     void deleteStudent_ShouldReturn403_WhenUserIsManager() throws Exception {
-
         Role managerRole = getOrCreateRole(RoleName.MANAGER);
         User managerUser = userRepository.save(User.builder()
                 .firstName("Manager")
@@ -854,7 +855,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Тест 5: отсутствует токен авторизации (401)")
     void deleteStudent_ShouldReturn401_WhenNoToken() throws Exception {
-
         Student studentToDelete = Student.builder()
                 .firstName("NoAuth")
                 .lastName("Student")
