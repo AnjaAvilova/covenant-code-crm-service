@@ -1,27 +1,22 @@
 package com.covenantcode.crm.controller;
 
-import com.covenantcode.crm.dto.user.EnabledUpdateRequest;
-import com.covenantcode.crm.dto.teacher.TeacherCreateRequest;
 import com.covenantcode.crm.BaseIntegrationTest;
+import com.covenantcode.crm.dto.teacher.TeacherCreateRequest;
 import com.covenantcode.crm.dto.teacher.TeacherUpdateRequest;
+import com.covenantcode.crm.dto.user.EnabledUpdateRequest;
+import com.covenantcode.crm.entity.Course;
 import com.covenantcode.crm.entity.Role;
 import com.covenantcode.crm.entity.StudyGroup;
 import com.covenantcode.crm.entity.User;
-import com.covenantcode.crm.entity.Course;
 import com.covenantcode.crm.entity.enums.CourseStatus;
-import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.entity.enums.GroupStatus;
+import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.repository.CourseRepository;
 import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
-import java.util.ArrayList;
-import java.util.List;
-
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,16 +34,16 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -87,10 +82,6 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     void setUp() {
 
-        studyGroupRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        courseRepository.deleteAllInBatch();
-
         Role adminRole = roleRepository.findByName(RoleName.ADMIN)
                 .orElseGet(() -> roleRepository.save(Role.builder().name(RoleName.ADMIN).build()));
         Role teacherRole = roleRepository.findByName(RoleName.TEACHER)
@@ -124,16 +115,6 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
 
         adminToken = jwtService.generateToken(admin);
     }
-
-    @AfterEach
-    void tearDown() {
-
-        userRepository.deleteAll(createdUsers);
-        createdUsers.clear();
-
-    }
-
-    private final List<User> createdUsers = new ArrayList<>();
 
     @Test
     @DisplayName("GET /api/v1/teachers — возвращает 200 и список преподавателей")
@@ -458,19 +439,22 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
                 ))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
+
     @Test
     @DisplayName("GET /api/v1/teachers/{id} — возвращает 403 при использовании токена STUDENT")
     void getTeacherById_withStudentToken_shouldReturn403() throws Exception {
+        Role studentRole = roleRepository.findByName(RoleName.STUDENT)
+                .orElseGet(() -> roleRepository.save(Role.builder().name(RoleName.STUDENT).build()));
+
         User testStudent = User.builder()
                 .firstName("Student")
                 .lastName("Studentov")
                 .email("student_only_for_this_test@test.com")
                 .password(passwordEncoder.encode("student123"))
-                .role(roleRepository.findByName(RoleName.STUDENT).orElseThrow())
+                .role(studentRole)
                 .build();
 
         User savedStudent = userRepository.save(testStudent);
-        createdUsers.add(savedStudent);
 
         String studentToken = jwtService.generateToken(savedStudent);
 

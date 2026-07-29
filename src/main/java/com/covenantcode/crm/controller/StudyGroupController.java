@@ -153,8 +153,20 @@ public class StudyGroupController {
 
     @GetMapping("/{id}/students")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TEACHER')")
-    public ResponseEntity<List<StudentResponse>> getGroupStudents(@PathVariable Long id) {
-        return ResponseEntity.ok(studyGroupService.getGroupStudents(id));
+    @Operation(summary = "Получение списка студентов учебной группы",
+            description = "Возвращает полный список студентов, зачисленных в группу. " +
+                    "Доступ: ADMIN/MANAGER – любая группа, TEACHER – только те группы, где он является преподавателем.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Успешное получение списка студентов"),
+            @ApiResponse(responseCode = "401", description = "Не авторизован"),
+            @ApiResponse(responseCode = "403", description = "Нет прав на просмотр студентов этой группы"),
+            @ApiResponse(responseCode = "404", description = "Группа не найдена"),
+
+    })
+    public ResponseEntity<List<StudentResponse>> getStudentsOfGroup(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(studyGroupService.getStudentsOfGroup(id, currentUser));
     }
 
     @GetMapping("/{id}/lessons")
@@ -162,6 +174,7 @@ public class StudyGroupController {
     public ResponseEntity<List<LessonResponse>> getGroupLessons(@PathVariable Long id) {
         return ResponseEntity.ok(studyGroupService.getGroupLessons(id));
     }
+
     @Operation(
             summary = "Получение учебной группы по ID",
             description = "Возвращает подробную информацию о группе. Доступ: ADMIN/MANAGER – любая группа, TEACHER – только свои, STUDENT – только свои."
@@ -195,7 +208,7 @@ public class StudyGroupController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeStudent(@PathVariable("id") Long groupId,
-                              @PathVariable Long studentId){
+                              @PathVariable Long studentId) {
         studyGroupService.removeStudent(groupId, studentId);
     }
 

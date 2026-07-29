@@ -7,6 +7,7 @@ import com.covenantcode.crm.dto.group.StudyGroupCreateRequest;
 import com.covenantcode.crm.dto.group.StudyGroupResponse;
 import com.covenantcode.crm.dto.group.StudyGroupUpdateRequest;
 import com.covenantcode.crm.dto.group.UserShortResponse;
+import com.covenantcode.crm.dto.student.StudentResponse;
 import com.covenantcode.crm.entity.Course;
 import com.covenantcode.crm.entity.Role;
 import com.covenantcode.crm.entity.Student;
@@ -54,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -140,7 +142,6 @@ class StudyGroupServiceImplTest {
         teacherWithoutRole.setFirstName("Bob");
         teacherWithoutRole.setLastName("Johnson");
         teacherWithoutRole.setRole(teacherRole);
-
 
 
         group1 = new StudyGroup();
@@ -1167,5 +1168,167 @@ class StudyGroupServiceImplTest {
         verify(studentRepository, never()).findById(any());
         verify(studyGroupRepository, never()).save(any());
         verifyNoInteractions(studyGroupMapper);
+    }
+
+    @Test
+    @DisplayName("ADMIN получает студентов группы (200)")
+    void adminGetsStudentsOfGroup_returnsListOfTwo() {
+        Student student1 = Student.builder()
+                .id(1L)
+                .firstName("Иван")
+                .lastName("Иванов")
+                .build();
+        Student student2 = Student.builder()
+                .id(2L)
+                .firstName("Петр")
+                .lastName("Петров")
+                .build();
+        Set<Student> students = new HashSet<>(Set.of(student1, student2));
+        group1.setStudents(students);
+
+        User admin = new User();
+        Role adminRole = new Role();
+        adminRole.setName(RoleName.ADMIN);
+        admin.setId(10L);
+        admin.setRole(adminRole);
+
+        StudentResponse response1 = mock(StudentResponse.class);
+        StudentResponse response2 = mock(StudentResponse.class);
+
+        when(studyGroupRepository.findById(1L)).thenReturn(Optional.of(group1));
+        when(studentMapper.toResponse(student1)).thenReturn(response1);
+        when(studentMapper.toResponse(student2)).thenReturn(response2);
+
+        List<StudentResponse> result = studyGroupService.getStudentsOfGroup(1L, admin);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).containsExactlyInAnyOrder(response1, response2);
+        verify(studyGroupRepository).findById(1L);
+        verify(studentMapper).toResponse(student1);
+        verify(studentMapper).toResponse(student2);
+    }
+
+    @Test
+    @DisplayName("MANAGER получает студентов без проверки учителя (200)")
+    void managerGetsStudentsOfGroup_returnsListWithoutTeacherCheck() {
+        Student student1 = Student.builder()
+                .id(1L)
+                .firstName("Иван")
+                .lastName("Иванов")
+                .build();
+        Student student2 = Student.builder()
+                .id(2L)
+                .firstName("Петр")
+                .lastName("Петров")
+                .build();
+        Set<Student> students = new HashSet<>(Set.of(student1, student2));
+        group1.setStudents(students);
+
+        User manager = new User();
+        Role managerRole = new Role();
+        managerRole.setName(RoleName.MANAGER);
+        manager.setId(20L);
+        manager.setRole(managerRole);
+
+        StudentResponse response1 = mock(StudentResponse.class);
+        StudentResponse response2 = mock(StudentResponse.class);
+
+        when(studyGroupRepository.findById(1L)).thenReturn(Optional.of(group1));
+        when(studentMapper.toResponse(student1)).thenReturn(response1);
+        when(studentMapper.toResponse(student2)).thenReturn(response2);
+
+        List<StudentResponse> result = studyGroupService.getStudentsOfGroup(1L, manager);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).containsExactlyInAnyOrder(response1, response2);
+        verify(studyGroupRepository).findById(1L);
+        verify(studentMapper, times(2)).toResponse(any(Student.class));
+    }
+
+    @Test
+    @DisplayName("TEACHER получает студентов своей группы (200)")
+    void teacherGetsStudentsOfOwnGroup_returnsList() {
+        Student student1 = Student.builder()
+                .id(1L)
+                .firstName("Иван")
+                .lastName("Иванов")
+                .build();
+        Set<Student> students = new HashSet<>(Set.of(student1));
+        group1.setStudents(students);
+        group1.setTeacher(teacher1);
+
+        StudentResponse response1 = mock(StudentResponse.class);
+
+        when(studyGroupRepository.findById(1L)).thenReturn(Optional.of(group1));
+        when(studentMapper.toResponse(student1)).thenReturn(response1);
+
+        List<StudentResponse> result = studyGroupService.getStudentsOfGroup(1L, teacher1);
+
+        assertThat(result).hasSize(1);
+        assertThat(result).containsExactly(response1);
+        verify(studyGroupRepository).findById(1L);
+        verify(studentMapper).toResponse(student1);
+    }
+
+    @Test
+    @DisplayName("TEACHER получает студентов чужой группы (403)")
+    void teacherGetsStudentsOfAnotherGroup_throwsAccessDenied() {
+        Student student1 = Student.builder()
+                .id(1L)
+                .firstName("Иван")
+                .lastName("Иванов")
+                .build();
+        Set<Student> students = new HashSet<>(Set.of(student1));
+        group1.setStudents(students);
+        group1.setTeacher(teacher1);
+
+        when(studyGroupRepository.findById(1L)).thenReturn(Optional.of(group1));
+
+        assertThatThrownBy(() -> studyGroupService.getStudentsOfGroup(1L, teacher2))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage("Access Denied");
+
+        verify(studyGroupRepository).findById(1L);
+        verify(studentMapper, never()).toResponse(any(Student.class));
+    }
+
+    @Test
+    @DisplayName("группа не найдена (404)")
+    void groupNotFound_throwsResourceNotFoundException() {
+        User admin = new User();
+        Role adminRole = new Role();
+        adminRole.setName(RoleName.ADMIN);
+        admin.setId(10L);
+        admin.setRole(adminRole);
+
+        Long nonExistentGroupId = 99L;
+
+        when(studyGroupRepository.findById(nonExistentGroupId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> studyGroupService.getStudentsOfGroup(nonExistentGroupId, admin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Study group with id " + nonExistentGroupId + " not found");
+
+        verify(studyGroupRepository).findById(nonExistentGroupId);
+        verify(studentMapper, never()).toResponse(any(Student.class));
+    }
+
+    @Test
+    @DisplayName("Группа без студентов — пустой список без исключений")
+    void groupWithoutStudents_returnsEmptyList() {
+
+        User admin = new User();
+        Role adminRole = new Role();
+        adminRole.setName(RoleName.ADMIN);
+        admin.setId(10L);
+        admin.setRole(adminRole);
+
+        when(studyGroupRepository.findById(3L)).thenReturn(Optional.of(group3));
+
+        List<StudentResponse> result = studyGroupService.getStudentsOfGroup(3L, admin);
+
+        assertThat(result).isEmpty();
+        verify(studyGroupRepository).findById(3L);
+        verify(studentMapper, never()).toResponse(any(Student.class));
     }
 }

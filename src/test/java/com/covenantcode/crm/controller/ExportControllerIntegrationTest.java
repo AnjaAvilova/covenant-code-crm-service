@@ -15,7 +15,6 @@ import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -67,12 +66,6 @@ class ExportControllerIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     void setUp() {
 
-        leadRepository.deleteAllInBatch();
-        courseRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        roleRepository.deleteAllInBatch();
-        studentRepository.deleteAllInBatch();
-
         Role adminRole = roleRepository.findByName(RoleName.ADMIN)
                 .orElseGet(() -> roleRepository.save(Role.builder().name(RoleName.ADMIN).build()));
 
@@ -122,15 +115,6 @@ class ExportControllerIntegrationTest extends BaseIntegrationTest {
                 .email("petr.ivanov@example.com")
                 .build();
         studentRepository.save(student2);
-    }
-
-    @AfterEach
-    void tearDown() {
-        leadRepository.deleteAll();
-        courseRepository.deleteAll();
-        userRepository.deleteAll();
-        roleRepository.deleteAll();
-        studentRepository.deleteAll();
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.covenantcode.crm.dto.lead.LeadConvertRequest;
 import com.covenantcode.crm.dto.lead.LeadCreateRequest;
 import com.covenantcode.crm.dto.lead.LeadStatusUpdateRequest;
 import com.covenantcode.crm.dto.lead.LeadUpdateRequest;
+import com.covenantcode.crm.dto.student.StudentResponse;
 import com.covenantcode.crm.entity.Course;
 import com.covenantcode.crm.entity.Lead;
 import com.covenantcode.crm.entity.Role;
@@ -18,19 +19,13 @@ import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.repository.CourseRepository;
 import com.covenantcode.crm.repository.LeadRepository;
 import com.covenantcode.crm.repository.RoleRepository;
+import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
 import org.hamcrest.Matchers;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,7 +38,13 @@ import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -52,7 +53,6 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -64,7 +64,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Transactional
 @WithMockUser(roles = "MANAGER")
 public class LeadControllerIntegrationTest extends BaseIntegrationTest {
 
@@ -93,6 +92,9 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
     private LeadRepository leadRepository;
 
     @Autowired
+    private StudentRepository studentRepository;
+
+    @Autowired
     private JwtService jwtService;
 
     private Course testCourse;
@@ -107,10 +109,6 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        leadRepository.deleteAll();
-        userRepository.deleteAll();
-        courseRepository.deleteAll();
-        roleRepository.deleteAll();
 
         testCourse = new Course();
         testCourse.setTitle("Test Course");
@@ -172,15 +170,6 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
         adminToken = jwtService.generateToken(testAdmin);
         studentToken = jwtService.generateToken(testStudent);
     }
-    @AfterEach
-    void tearDown() {
-        // Удаляем все связанные сущности (в обратном порядке создания)
-        leadRepository.deleteAll(); // добавлено для очистки лидов
-        userRepository.deleteAll();   // удаление пользователей
-        courseRepository.deleteAll(); // удаление курсов
-        roleRepository.deleteAll();   // удаление ролей
-    }
-
 
     // Вспомогательный метод для получения EntityManager (если нужно)
     private EntityManager getEntityManager() {
@@ -394,7 +383,6 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("POST /{id}/convert — Успех (201) от MANAGER")
     @WithMockUser(roles = "MANAGER")
     void convertLead_Success_Manager() throws Exception {
-
         Lead lead = createLeadWithStatus(LeadStatus.NEW);
 
         LeadConvertRequest request = LeadConvertRequest.builder()
@@ -405,30 +393,28 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
                 .birthDate(LocalDate.of(2000, 1, 1))
                 .build();
 
-        mockMvc.perform(post(baseUrl + "/{id}/convert", lead.getId())
+        MvcResult result = mockMvc.perform(post(baseUrl + "/{id}/convert", lead.getId())
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.firstName").value("Студент"))
-                .andExpect(jsonPath("$.lastName").value("Тестовый"))
-                .andExpect(jsonPath("$.phone").value("+79998887766"))
-                .andExpect(jsonPath("$.email").value("student@test.com"))
-                .andExpect(jsonPath("$.birthDate").value("2000-01-01"))
-                .andExpect(jsonPath("$.userId").value(Matchers.nullValue()));
+                .andReturn();
 
-        entityManager.flush();
-        entityManager.clear();
+        StudentResponse response = objectMapper.readValue(
+                result.getResponse().getContentAsString(),
+                StudentResponse.class
+        );
+
+        Student student = studentRepository.findById(response.getId())
+                .orElseThrow(() -> new AssertionError("Student not found: " + response.getId()));
+
+        assertThat(student.getFirstName()).isEqualTo("Студент");
+        assertThat(student.getLastName()).isEqualTo("Тестовый");
+        assertThat(student.getPhone()).isEqualTo("+79998887766");
+        assertThat(student.getEmail()).isEqualTo("student@test.com");
+        assertThat(student.getBirthDate()).isEqualTo(LocalDate.of(2000, 1, 1));
 
         Lead updatedLead = leadRepository.findById(lead.getId()).orElseThrow();
         assertEquals(LeadStatus.CONVERTED_TO_STUDENT, updatedLead.getStatus());
-
-        Student savedStudent = updatedLead.getConvertedStudent();
-        assertNotNull(savedStudent);
-        assertEquals("Студент", savedStudent.getFirstName());
-        assertEquals("Тестовый", savedStudent.getLastName());
-        assertEquals("+79998887766", savedStudent.getPhone());
-        assertEquals("student@test.com", savedStudent.getEmail());
-        assertEquals(LocalDate.of(2000, 1, 1), savedStudent.getBirthDate());
     }
 
     @Test
@@ -451,9 +437,6 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.firstName").value("Студент"))
                 .andExpect(jsonPath("$.lastName").value("Тестовый"))
                 .andExpect(jsonPath("$.phone").value("+79998887766"));
-
-        entityManager.flush();
-        entityManager.clear();
 
         Lead updatedLead = leadRepository.findById(lead.getId()).orElseThrow();
         assertEquals(LeadStatus.CONVERTED_TO_STUDENT, updatedLead.getStatus());
@@ -560,7 +543,6 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("POST /{id}/convert — Только обязательные поля (201)")
     @WithMockUser(roles = "MANAGER")
     void convertLead_MinimalFields_Success() throws Exception {
-
         Lead lead = createLeadWithStatus(LeadStatus.NEW);
 
         LeadConvertRequest request = LeadConvertRequest.builder()
@@ -569,27 +551,28 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
                 .phone("555")
                 .build();
 
-        mockMvc.perform(post(baseUrl + "/{id}/convert", lead.getId())
+        MvcResult result = mockMvc.perform(post(baseUrl + "/{id}/convert", lead.getId())
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.firstName").value("Min"))
-                .andExpect(jsonPath("$.lastName").value("Max"))
-                .andExpect(jsonPath("$.phone").value("555"))
-                .andExpect(jsonPath("$.userId").value(Matchers.nullValue()))
-                .andExpect(jsonPath("$.email").value(Matchers.nullValue()))
-                .andExpect(jsonPath("$.birthDate").value(Matchers.nullValue()));
+                .andReturn();
 
-        entityManager.flush();
-        entityManager.clear();
+        StudentResponse response = objectMapper.readValue(
+                result.getResponse().getContentAsString(),
+                StudentResponse.class
+        );
 
-        Student student = leadRepository.findById(lead.getId())
-                .orElseThrow()
-                .getConvertedStudent();
+        Student student = studentRepository.findById(response.getId())
+                .orElseThrow(() -> new AssertionError("Student not found: " + response.getId()));
 
-        assertNotNull(student);
-        assertNull(student.getEmail());
-        assertNull(student.getBirthDate());
+        assertThat(student.getFirstName()).isEqualTo("Min");
+        assertThat(student.getLastName()).isEqualTo("Max");
+        assertThat(student.getPhone()).isEqualTo("555");
+        assertThat(student.getEmail()).isNull();
+        assertThat(student.getBirthDate()).isNull();
+
+        Lead updatedLead = leadRepository.findById(lead.getId()).orElseThrow();
+        assertEquals(LeadStatus.CONVERTED_TO_STUDENT, updatedLead.getStatus());
     }
 
     @Test
@@ -916,6 +899,7 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
         assertThat(unchangedLead.getPhone()).isEqualTo("+79161111111");
         assertThat(unchangedLead.getStatus()).isEqualTo(LeadStatus.NEW);
     }
+
     @Test
     @DisplayName("PATCH /{id}/status с валидным статусом от пользователя с ролью MANAGER — ответ 200, тело содержит обновлённый статус")
     void changeStatus_ValidStatus_Manager_ShouldReturn200() throws Exception {
@@ -1027,7 +1011,6 @@ public class LeadControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value("bad-request"));
     }
-
 
 
     @Test

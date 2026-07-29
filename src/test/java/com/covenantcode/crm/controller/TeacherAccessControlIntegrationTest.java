@@ -17,7 +17,6 @@ import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -83,11 +82,6 @@ class TeacherAccessControlIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        lessonRepository.deleteAllInBatch();
-        studyGroupRepository.deleteAllInBatch();
-        studentRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        courseRepository.deleteAllInBatch();
 
         Role teacherRole = roleRepository.findByName(RoleName.TEACHER)
                 .orElseGet(() -> roleRepository.save(
@@ -177,14 +171,6 @@ class TeacherAccessControlIntegrationTest extends BaseIntegrationTest {
                 .build());
 
         teacher1Token = loginAndGetToken("teacher1@mail.com", "password");
-    }
-
-    @AfterEach
-    void tearDown() {
-        studyGroupRepository.deleteAllInBatch();
-        studentRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        courseRepository.deleteAllInBatch();
     }
 
     private String loginAndGetToken(String email, String password) throws Exception {
