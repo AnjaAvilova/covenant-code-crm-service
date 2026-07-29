@@ -2,6 +2,7 @@ package com.covenantcode.crm.controller;
 
 import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
+import com.covenantcode.crm.dto.lesson.LessonUpdateRequest;
 import com.covenantcode.crm.service.LessonService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -49,15 +50,6 @@ public class LessonController {
         return ResponseEntity.ok(lessonService.getById(id));
     }
 
-    @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public LessonResponse update(
-            @PathVariable Long id,
-            @Valid @RequestBody LessonCreateRequest request
-    ) {
-        return lessonService.update(id, request);
-    }
-
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -97,6 +89,32 @@ public class LessonController {
             Pageable pageable
     ) {
         Page<LessonResponse> response = lessonService.getAll(groupId, teacherId, dateFrom, dateTo, pageable);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(
+            summary = "Обновить занятие",
+            description = "Полное обновление атрибутов занятия")
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Успешное обновление занятия",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = LessonResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Неверный запрос", content = @Content),
+            @ApiResponse(responseCode = "401", description = "Пользователь не аутентифицирован", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Доступ запрещен (недостаточно прав)", content = @Content),
+            @ApiResponse(responseCode = "404", description = "Занятие не найдено", content = @Content),
+            @ApiResponse(responseCode = "409", description = "У преподавателя уже есть занятие в это время", content = @Content)
+    })
+    public ResponseEntity<LessonResponse> update(
+            @PathVariable Long id,
+            @Valid @RequestBody LessonUpdateRequest request
+    ) {
+        LessonResponse response = lessonService.update(id, request);
         return ResponseEntity.ok(response);
     }
 }

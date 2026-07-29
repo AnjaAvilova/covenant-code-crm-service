@@ -11,11 +11,12 @@ import org.mapstruct.MappingTarget;
 
 import java.util.List;
 
-@Mapper
+@Mapper(componentModel = "spring")
 public interface LessonMapper {
 
     @Mapping(target = "teacherId", source = "teacher.id")
     @Mapping(target = "teacherEmail", source = "teacher.email")
+    @Mapping(target = "studyGroupId", source = "studyGroup.id")
     LessonResponse toResponse(Lesson lesson);
 
     List<LessonResponse> toResponseList(List<Lesson> lessons);

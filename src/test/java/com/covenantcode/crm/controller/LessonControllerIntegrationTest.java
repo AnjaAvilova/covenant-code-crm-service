@@ -1,6 +1,7 @@
 package com.covenantcode.crm.controller;
 
 import com.covenantcode.crm.BaseIntegrationTest;
+import com.covenantcode.crm.dto.lesson.LessonUpdateRequest;
 import com.covenantcode.crm.entity.Course;
 import com.covenantcode.crm.entity.Lesson;
 import com.covenantcode.crm.entity.Role;
@@ -15,6 +16,7 @@ import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -32,14 +34,15 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
 class LessonControllerIntegrationTest extends BaseIntegrationTest {
-
     @Autowired
     private MockMvc mockMvc;
 
@@ -64,6 +67,9 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     // Поля для сущностей (БЕЗ @Autowired)
     private Course testCourse;
     private StudyGroup testGroup1;
@@ -79,6 +85,11 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
     private String teacherToken;
 
     private final String baseUrl = "/api/v1/lessons";
+
+    // Вспомогательный метод для генерации заголовка авторизации
+    private String bearer(String token) {
+        return "Bearer " + token;
+    }
 
     @BeforeEach
     void setUp() {
@@ -267,6 +278,7 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.content[0].teacherId").value(testTeacher.getId().intValue()))
                 .andExpect(jsonPath("$.content[1].teacherId").value(testTeacher.getId().intValue()));
     }
+
     private Lesson createLesson(StudyGroup group, User teacher, LocalDate date) {
         return Lesson.builder()
                 .studyGroup(group)
@@ -277,4 +289,143 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
                 .endTime(LocalTime.of(11, 30))
                 .build();
     }
+
+    @Test
+    @DisplayName("Тест 1: успешное обновление → HTTP 200, поля изменились")
+    void update_Success_Returns200AndUpdatedFields() throws Exception {
+        // Given - Создаем и сохраняем исходное занятие в БД
+        Lesson initialLesson = createLesson(testGroup1, testTeacher, LocalDate.of(2026, 9, 1));
+        initialLesson = lessonRepository.save(initialLesson);
+
+        // Готовим запрос на изменение группы (на testGroup2), топика и времени
+        LessonUpdateRequest request = new LessonUpdateRequest();
+        request.setGroupId(testGroup2.getId());
+        request.setTeacherId(testTeacher.getId());
+        request.setTopic("Новая измененная тема занятия");
+        request.setDescription("Обновленное описание");
+        request.setLessonDate(LocalDate.of(2026, 9, 2));
+        request.setStartTime(LocalTime.of(14, 0));
+        request.setEndTime(LocalTime.of(16, 0));
+
+        // When & Then
+        mockMvc.perform(put(baseUrl + "/{id}", initialLesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(initialLesson.getId()))
+                // ИСПРАВЛЕНО: проверяем $.studyGroupId вместо $.groupId
+                .andExpect(jsonPath("$.studyGroupId").value(testGroup2.getId()))
+                .andExpect(jsonPath("$.teacherId").value(testTeacher.getId()))
+                .andExpect(jsonPath("$.topic").value("Новая измененная тема занятия"));
+    }
+
+    @Test
+    @DisplayName("Тест 2: группа в статусе COMPLETED → HTTP 400")
+    void update_GroupCompleted_Returns400() throws Exception {
+        // Given - Создаем и переводим группу в COMPLETED
+        StudyGroup completedGroup = new StudyGroup();
+        completedGroup.setName("Архивная группа");
+        completedGroup.setCourse(testCourse);
+        completedGroup.setTeacher(testTeacher);
+        completedGroup.setStartDate(LocalDate.of(2025, 1, 1));
+        completedGroup.setStatus(GroupStatus.COMPLETED);
+        completedGroup = studyGroupRepository.save(completedGroup);
+
+        // Создаем занятие, привязанное к завершенной группе
+        Lesson initialLesson = createLesson(completedGroup, testTeacher, LocalDate.of(2025, 1, 15));
+        initialLesson = lessonRepository.save(initialLesson);
+
+        LessonUpdateRequest request = new LessonUpdateRequest();
+        request.setGroupId(testGroup1.getId()); // Пытаемся перепривязать к активной, но сама сущность из COMPLETED
+        request.setTeacherId(testTeacher.getId());
+        request.setTopic("Попытка редактирования");
+        request.setLessonDate(LocalDate.of(2026, 9, 1));
+        request.setStartTime(LocalTime.of(9, 0));
+        request.setEndTime(LocalTime.of(11, 0));
+
+        // When & Then
+        mockMvc.perform(put(baseUrl + "/{id}", initialLesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(managerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Тест 3: занятие не найдено → HTTP 404")
+    void update_LessonNotFound_Returns404() throws Exception {
+        // Given
+        Long nonExistingId = 9999L;
+        LessonUpdateRequest request = new LessonUpdateRequest();
+        request.setGroupId(testGroup1.getId());
+        request.setTeacherId(testTeacher.getId());
+        request.setTopic("Тема для несуществующего занятия");
+        request.setLessonDate(LocalDate.of(2026, 9, 1));
+        request.setStartTime(LocalTime.of(9, 0));
+        request.setEndTime(LocalTime.of(11, 0));
+
+        // When & Then
+        mockMvc.perform(put(baseUrl + "/{id}", nonExistingId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("Тест 4: пересечение занятий → HTTP 409")
+    void update_TeacherOverlap_Returns409() throws Exception {
+        // Given - Создаем два занятия в БД (одно будем обновлять, второе — это чужое занятие, создающее конфликт)
+        Lesson targetLesson = createLesson(testGroup1, testTeacher, LocalDate.of(2026, 9, 1));
+        targetLesson.setStartTime(LocalTime.of(9, 0));
+        targetLesson.setEndTime(LocalTime.of(11, 0));
+        targetLesson = lessonRepository.save(targetLesson);
+
+        Lesson conflictingLesson = createLesson(testGroup2, testTeacher, LocalDate.of(2026, 9, 1));
+        conflictingLesson.setStartTime(LocalTime.of(14, 0));
+        conflictingLesson.setEndTime(LocalTime.of(16, 0));
+        lessonRepository.save(conflictingLesson);
+
+        // Пытаемся обновить время targetLesson (09:00) так, чтобы оно наложилось на чужое (14:00)
+        LessonUpdateRequest request = new LessonUpdateRequest();
+        request.setGroupId(testGroup1.getId());
+        request.setTeacherId(testTeacher.getId());
+        request.setTopic("Сдвигаем время на конфликтное");
+        request.setLessonDate(LocalDate.of(2026, 9, 1));
+        request.setStartTime(LocalTime.of(13, 30)); // Наложение на 14:00-16:00
+        request.setEndTime(LocalTime.of(15, 0));
+
+        // When & Then
+        mockMvc.perform(put(baseUrl + "/{id}", targetLesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(managerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("Тест 5: роль TEACHER → HTTP 403")
+    void update_RoleTeacher_Returns403Forbidden() throws Exception {
+        // Given
+        Lesson initialLesson = createLesson(testGroup1, testTeacher, LocalDate.of(2026, 9, 1));
+        initialLesson = lessonRepository.save(initialLesson);
+
+        LessonUpdateRequest request = new LessonUpdateRequest();
+        request.setGroupId(testGroup1.getId());
+        request.setTeacherId(testTeacher.getId());
+        request.setTopic("Преподаватель пытается отредактировать");
+        request.setLessonDate(LocalDate.of(2026, 9, 1));
+        request.setStartTime(LocalTime.of(9, 0));
+        request.setEndTime(LocalTime.of(11, 0));
+
+        // When & Then
+        // Spring Security заблокирует этот запрос на уровне @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+        mockMvc.perform(put(baseUrl + "/{id}", initialLesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(teacherToken)) // Токен TEACHER
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+    }
+
 }
