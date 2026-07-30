@@ -287,11 +287,11 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
         request.setStartTime(LocalTime.of(14, 0));
         request.setEndTime(LocalTime.of(15, 30));
 
-       mockMvc.perform(post(baseUrl)
-                       .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
-                       .contentType(MediaType.APPLICATION_JSON)
-                       .content(objectMapper.writeValueAsString(request)))
-               .andExpect(status().isCreated())                .andExpect(jsonPath("$.id").exists())
+        mockMvc.perform(post(baseUrl)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())                .andExpect(jsonPath("$.id").exists())
 
 
                 .andExpect(jsonPath("$.topic").value("Интеграционный тест создания занятия"))
@@ -678,5 +678,59 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET по существующему ID с токеном ADMIN → HTTP 200")
+    void getById_WithAdminToken_ReturnsLesson() throws Exception {
+        Lesson lesson = createLesson(testGroup1, testTeacher, LocalDate.of(2026, 9, 1));
+        lesson = lessonRepository.save(lesson);
+
+        mockMvc.perform(get(baseUrl + "/{id}", lesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(lesson.getId()))
+                .andExpect(jsonPath("$.teacher.id").value(testTeacher.getId()))
+                .andExpect(jsonPath("$.studyGroup.id").value(testGroup1.getId()))
+                .andExpect(jsonPath("$.topic").value("Тестовая тема занятия"));
+    }
+
+    @Test
+    @DisplayName("GET с токеном TEACHER (своё занятие) → HTTP 200")
+    void getById_WithTeacherTokenOwnLesson_ReturnsLesson() throws Exception {
+        Lesson lesson = createLesson(testGroup1, testTeacher, LocalDate.of(2026, 9, 1));
+        lesson = lessonRepository.save(lesson);
+
+        mockMvc.perform(get(baseUrl + "/{id}", lesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(teacherToken))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(lesson.getId()))
+                .andExpect(jsonPath("$.teacher.id").value(testTeacher.getId()))
+                .andExpect(jsonPath("$.studyGroup.id").value(testGroup1.getId()));
+    }
+
+    @Test
+    @DisplayName("GET с токеном TEACHER (чужое занятие) → HTTP 403")
+    void getById_WithTeacherTokenOtherLesson_ReturnsForbidden() throws Exception {
+        Lesson lesson = createLesson(anotherGroup, anotherTeacher, LocalDate.of(2026, 9, 1));
+        lesson = lessonRepository.save(lesson);
+
+        mockMvc.perform(get(baseUrl + "/{id}", lesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(teacherToken))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET с несуществующим ID → HTTP 404")
+    void getById_WithNonExistentId_ReturnsNotFound() throws Exception {
+        Long nonExistentId = 9999L;
+
+        mockMvc.perform(get(baseUrl + "/{id}", nonExistentId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
     }
 }

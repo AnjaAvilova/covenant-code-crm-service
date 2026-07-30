@@ -1,18 +1,23 @@
 package com.covenantcode.crm.service.impl;
 
+
 import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
 import com.covenantcode.crm.dto.lesson.LessonUpdateRequest;
 import com.covenantcode.crm.entity.Lesson;
+import com.covenantcode.crm.entity.Role;
+import com.covenantcode.crm.entity.Student;
 import com.covenantcode.crm.entity.StudyGroup;
 import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.GroupStatus;
+import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.exception.BadRequestException;
 import com.covenantcode.crm.exception.ForbiddenException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.LessonMapper;
 import com.covenantcode.crm.repository.LessonRepository;
 import com.covenantcode.crm.repository.LessonSpecifications;
+import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.service.LessonOverlapService;
@@ -26,6 +31,8 @@ import lombok.AllArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,20 +43,20 @@ public class LessonServiceImpl implements LessonService {
 
     private final LessonRepository lessonRepository;
     private final UserRepository userRepository;
-    private final StudyGroupRepository studyGroupRepository;
     private final LessonMapper lessonMapper;
-    private final LessonOverlapService lessonOverlapService;
     private final CurrentUserProvider currentUserProvider;
+    private final StudyGroupRepository studyGroupRepository;
+    private final LessonOverlapService lessonOverlapService;
+    private final StudentRepository studentRepository;
 
     @Override
     @Transactional(readOnly = true)
-    public LessonResponse getById(Long id) {
+    public LessonResponse getById(Long id, Authentication authentication) {
         Lesson lesson = lessonRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Lesson not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Lesson", id));
 
-        if (currentUserProvider.isTeacher()) {
-            checkTeacherHasAccessToLesson(lesson);
-        }
+        User currentUser = extractUserFromAuthentication(authentication);
+        checkAccess(lesson, currentUser);
 
         return lessonMapper.toResponse(lesson);
     }
@@ -128,14 +135,6 @@ public class LessonServiceImpl implements LessonService {
         lessonRepository.deleteById(id);
     }
 
-    private void checkTeacherHasAccessToLesson(Lesson lesson) {
-        Long currentUserId = currentUserProvider.getCurrentUserId();
-
-        if (lesson.getTeacher() == null || !lesson.getTeacher().getId().equals(currentUserId)) {
-            throw new ForbiddenException("У вас нет доступа к этому занятию");
-        }
-    }
-
     @Override
     @Transactional(readOnly = true)
     public Page<LessonResponse> getAll(
@@ -186,5 +185,58 @@ public class LessonServiceImpl implements LessonService {
         if (studyGroup.getStatus() != GroupStatus.ACTIVE) {
             throw new BadRequestException("Группа студентов должна быть в статусе ACTIVE");
         }
+    }
+
+
+    private User extractUserFromAuthentication(Authentication authentication) {
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof User user) {
+            return user;
+        }
+        if (principal instanceof UserDetails userDetails) {
+            String email = userDetails.getUsername();
+            return userRepository.findByEmail(email)
+                    .orElseThrow(() -> new ForbiddenException("Пользователь не найден"));
+        }
+        throw new ForbiddenException("Не удалось определить пользователя");
+    }
+
+    private void checkAccess(Lesson lesson, User currentUser) {
+        Role userRole = currentUser.getRole();
+        if (userRole == null) {
+            throw new ForbiddenException("У пользователя не назначена роль");
+        }
+
+        RoleName roleName = userRole.getName();
+
+        if (roleName == RoleName.ADMIN || roleName == RoleName.MANAGER) {
+            return;
+        }
+
+        if (roleName == RoleName.TEACHER) {
+            if (lesson.getTeacher() == null) {
+                throw new ForbiddenException("У занятия не указан преподаватель");
+            }
+            if (!lesson.getTeacher().getId().equals(currentUser.getId())) {
+                throw new ForbiddenException("У вас нет доступа к этому занятию");
+            }
+            return;
+        }
+
+        if (roleName == RoleName.STUDENT) {
+            Student student = studentRepository.findByUser_Id(currentUser.getId())
+                    .orElseThrow(() -> new ForbiddenException("Студент не найден"));
+
+            if (lesson.getStudyGroup() == null) {
+                throw new ForbiddenException("Занятие не привязано к группе");
+            }
+
+            if (!lesson.getStudyGroup().getStudents().contains(student)) {
+                throw new ForbiddenException("У вас нет доступа к этому занятию");
+            }
+            return;
+        }
+
+        throw new ForbiddenException("Недостаточно прав");
     }
 }

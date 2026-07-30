@@ -7,11 +7,12 @@ import java.time.LocalDate;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
 
 
 public interface LessonService {
 
-    LessonResponse getById(Long id);
+    LessonResponse getById(Long id, Authentication authentication);
 
     LessonResponse create(LessonCreateRequest request);
 
