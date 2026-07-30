@@ -12,7 +12,7 @@ import java.time.LocalTime;
 public class LessonCreateRequest {
 
     @NotNull
-    private Long studyGroupId;
+    private Long groupId;
 
     @NotNull
     private Long teacherId;
