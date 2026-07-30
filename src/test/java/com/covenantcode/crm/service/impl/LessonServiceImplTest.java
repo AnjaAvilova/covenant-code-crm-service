@@ -1,5 +1,8 @@
 package com.covenantcode.crm.service.impl;
 
+import com.covenantcode.crm.dto.group.StudyGroupShortResponse;
+import com.covenantcode.crm.dto.group.UserShortResponse;
+import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
 import com.covenantcode.crm.dto.lesson.LessonUpdateRequest;
 import com.covenantcode.crm.entity.Lesson;
@@ -17,9 +20,11 @@ import com.covenantcode.crm.service.LessonOverlapService;
 import com.covenantcode.crm.utils.CurrentUserProvider;
 import java.time.LocalDate;
 import java.time.LocalTime;
+
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,15 +42,20 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+
 
 @ExtendWith(MockitoExtension.class)
 class LessonServiceImplTest {
@@ -147,7 +157,7 @@ class LessonServiceImplTest {
     @Test
     @DisplayName("Тест 2: с фильтрами groupId и teacherId")
     void getAll_WithFilters_CallsRepositoryWithNonNullSpecification() {
-        // Given
+
         Long groupId = 1L;
         Long teacherId = 2L;
         Pageable pageable = PageRequest.of(0, 10);
@@ -166,14 +176,19 @@ class LessonServiceImplTest {
     }
 
     @Test
-    @DisplayName("Тест 1: успешное обновление занятия")
+    @DisplayName("Тест 3: успешное обновление занятия")
     void update_Success() {
         // Given
         LessonUpdateRequest request = createValidRequest();
+
         LessonResponse expectedResponse = LessonResponse.builder()
                 .id(lessonId)
-                .studyGroupId(groupId)
-                .teacherId(teacherId)
+                .studyGroup(StudyGroupShortResponse.builder()
+                        .id(groupId)
+                        .build())
+                .teacher(UserShortResponse.builder()
+                        .id(teacherId)
+                        .build())
                 .build();
 
         // Подставляем значения из request, чтобы верификация совпала до миллисекунды
@@ -202,50 +217,70 @@ class LessonServiceImplTest {
     }
 
     @Test
-    @DisplayName("Тест 2: группа занятия в статусе COMPLETED — BadRequestException")
+    @DisplayName("Тест 4: Группа не в статусе ACTIVE — BadRequestException")
     void update_ExistingGroupCompleted_ThrowsBadRequestException() {
-        // Given
+
         LessonUpdateRequest request = createValidRequest();
 
         StudyGroup completedGroup = new StudyGroup();
         completedGroup.setId(groupId);
         completedGroup.setStatus(GroupStatus.COMPLETED);
+
         existingLesson.setStudyGroup(completedGroup);
 
-        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(existingLesson));
+        when(lessonRepository.findById(lessonId))
+                .thenReturn(Optional.of(existingLesson));
+
+        when(studyGroupRepository.findById(groupId))
+                .thenReturn(Optional.of(completedGroup));
 
         // When & Then
-        BadRequestException exception = assertThrows(BadRequestException.class, () ->
-                lessonService.update(lessonId, request)
+        BadRequestException exception = assertThrows(
+                BadRequestException.class,
+                () -> lessonService.update(lessonId, request)
         );
 
-        assertEquals("Нельзя редактировать занятия завершённой группы", exception.getMessage());
+        assertEquals(
+                "Группа студентов должна быть в статусе ACTIVE",
+                exception.getMessage()
+        );
 
-        verifyNoInteractions(studyGroupRepository, userRepository, lessonOverlapService);
+        verify(studyGroupRepository).findById(groupId);
+        verifyNoInteractions(userRepository, lessonOverlapService);
         verify(lessonRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("Тест 3: занятие не найдено — ResourceNotFoundException")
+    @DisplayName("Тест 5: занятие не найдено — ResourceNotFoundException")
     void update_LessonNotFound_ThrowsResourceNotFoundException() {
-        // Given
+
         LessonUpdateRequest request = createValidRequest();
         Long nonExistingId = 99L;
 
-        when(lessonRepository.findById(nonExistingId)).thenReturn(Optional.empty());
+        when(lessonRepository.findById(nonExistingId))
+                .thenReturn(Optional.empty());
 
-        // When & Then
-        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class, () ->
-                lessonService.update(nonExistingId, request)
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> lessonService.update(nonExistingId, request)
         );
 
-        assertEquals("Lesson с id 99 не найдено", exception.getMessage());
-        verifyNoInteractions(studyGroupRepository, userRepository, lessonOverlapService);
+        assertEquals(
+                "Lesson not found with id: 99",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(
+                studyGroupRepository,
+                userRepository,
+                lessonOverlapService
+        );
+
         verify(lessonRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("Те bit 4: обновление без конфликта с самим собой")
+    @DisplayName("Тест 6: обновление без конфликта с самим собой")
     void update_NoConflictWithItself() {
         // Given
         LessonUpdateRequest request = createValidRequest();
@@ -278,7 +313,7 @@ class LessonServiceImplTest {
     }
 
     @Test
-    @DisplayName("Тест 5: пересечение с другим занятием — ConflictException")
+    @DisplayName("Тест 7: пересечение с другим занятием — ConflictException")
     void update_TeacherOverlap_ThrowsConflictException() {
         // Given
         LessonUpdateRequest request = createValidRequest();
@@ -301,5 +336,259 @@ class LessonServiceImplTest {
 
         assertEquals("У преподавателя уже есть занятие в это время", exception.getMessage());
         verify(lessonRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Тест 8: create — успешно создаёт занятие с группой и преподавателем")
+    void create_ValidRequest_SavesLessonWithStudyGroupAndTeacher() {
+
+        LessonCreateRequest request = createValidLessonCreateRequest();
+
+        StudyGroup studyGroup = StudyGroup.builder()
+                .id(request.getGroupId())
+                .name("Java Group")
+                .status(GroupStatus.ACTIVE)
+                .build();
+
+        User teacher = User.builder()
+                .id(request.getTeacherId())
+                .firstName("Ivan")
+                .lastName("Ivanov")
+                .email("teacher@test.com")
+                .enabled(true)
+                .build();
+
+        Lesson mappedLesson = Lesson.builder()
+                .topic(request.getTopic())
+                .description(request.getDescription())
+                .lessonDate(request.getLessonDate())
+                .startTime(request.getStartTime())
+                .endTime(request.getEndTime())
+                .build();
+
+        Lesson savedLesson = Lesson.builder()
+                .id(100L)
+                .studyGroup(studyGroup)
+                .teacher(teacher)
+                .topic(request.getTopic())
+                .description(request.getDescription())
+                .lessonDate(request.getLessonDate())
+                .startTime(request.getStartTime())
+                .endTime(request.getEndTime())
+                .build();
+
+        LessonResponse expectedResponse = LessonResponse.builder()
+                .id(100L)
+                .build();
+
+        when(studyGroupRepository.findById(request.getGroupId()))
+                .thenReturn(Optional.of(studyGroup));
+        when(userRepository.findById(request.getTeacherId()))
+                .thenReturn(Optional.of(teacher));
+        when(lessonMapper.toEntity(request))
+                .thenReturn(mappedLesson);
+        when(lessonRepository.save(mappedLesson))
+                .thenReturn(savedLesson);
+        when(lessonMapper.toResponse(savedLesson))
+                .thenReturn(expectedResponse);
+
+        LessonResponse result = lessonService.create(request);
+
+        assertThat(result).isEqualTo(expectedResponse);
+        assertThat(mappedLesson.getStudyGroup()).isEqualTo(studyGroup);
+        assertThat(mappedLesson.getTeacher()).isEqualTo(teacher);
+
+        verify(studyGroupRepository, times(1)).findById(request.getGroupId());
+        verify(userRepository, times(1)).findById(request.getTeacherId());
+
+        verify(lessonOverlapService, times(1)).checkTeacherOverlap(
+                eq(teacher.getId()),
+                eq(request.getLessonDate()),
+                eq(request.getStartTime()),
+                eq(request.getEndTime()),
+                isNull()
+        );
+
+        verify(lessonRepository, times(1)).save(mappedLesson);
+        verify(lessonMapper, times(1)).toResponse(savedLesson);
+    }
+
+    @Test
+    @DisplayName("Тест 9: create — если группа не найдена, выбрасывает ResourceNotFoundException")
+    void create_GroupNotFound_ThrowsResourceNotFoundException() {
+
+        LessonCreateRequest request = createValidLessonCreateRequest();
+
+        when(studyGroupRepository.findById(request.getGroupId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> lessonService.create(request))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(studyGroupRepository, times(1)).findById(request.getGroupId());
+
+        verify(userRepository, never()).findById(any());
+        verify(lessonOverlapService, never()).checkTeacherOverlap(any(), any(), any(), any(), any());
+        verify(lessonMapper, never()).toEntity(any());
+        verify(lessonRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Тест 10: create — если группа не ACTIVE, выбрасывает BadRequestException")
+    void create_InactiveStudyGroup_ThrowsBadRequestException() {
+
+        LessonCreateRequest request = createValidLessonCreateRequest();
+
+        StudyGroup inactiveStudyGroup = StudyGroup.builder()
+                .id(request.getGroupId())
+                .name("Inactive Group")
+                .status(GroupStatus.COMPLETED)
+                .build();
+
+        when(studyGroupRepository.findById(request.getGroupId()))
+                .thenReturn(Optional.of(inactiveStudyGroup));
+
+        assertThatThrownBy(() -> lessonService.create(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Группа студентов должна быть в статусе ACTIVE");
+
+        verify(studyGroupRepository, times(1)).findById(request.getGroupId());
+
+        verify(userRepository, never()).findById(any());
+        verify(lessonOverlapService, never()).checkTeacherOverlap(any(), any(), any(), any(), any());
+        verify(lessonMapper, never()).toEntity(any());
+        verify(lessonRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Тест 11: create — если время окончания раньше времени начала, выбрасывает BadRequestException")
+    void create_EndTimeBeforeStartTime_ThrowsBadRequestException() {
+
+        LessonCreateRequest request = createValidLessonCreateRequest();
+        request.setStartTime(LocalTime.of(12, 0));
+        request.setEndTime(LocalTime.of(10, 0));
+
+        assertThatThrownBy(() -> lessonService.create(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Время окончания урока должно быть позже времени начала");
+
+        verify(studyGroupRepository, never()).findById(any());
+        verify(userRepository, never()).findById(any());
+        verify(lessonOverlapService, never()).checkTeacherOverlap(any(), any(), any(), any(), any());
+        verify(lessonMapper, never()).toEntity(any());
+        verify(lessonRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Тест 12: create — если время окончания равно времени начала, выбрасывает BadRequestException")
+    void create_EndTimeEqualsStartTime_ThrowsBadRequestException() {
+
+        LessonCreateRequest request = createValidLessonCreateRequest();
+        request.setStartTime(LocalTime.of(10, 0));
+        request.setEndTime(LocalTime.of(10, 0));
+
+        assertThatThrownBy(() -> lessonService.create(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Время окончания урока должно быть позже времени начала");
+
+        verify(studyGroupRepository, never()).findById(any());
+        verify(userRepository, never()).findById(any());
+        verify(lessonOverlapService, never()).checkTeacherOverlap(any(), any(), any(), any(), any());
+        verify(lessonMapper, never()).toEntity(any());
+        verify(lessonRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Тест 13: create — если преподаватель не найден, выбрасывает ResourceNotFoundException")
+    void create_TeacherNotFound_ThrowsResourceNotFoundException() {
+
+        LessonCreateRequest request = createValidLessonCreateRequest();
+
+        StudyGroup studyGroup = StudyGroup.builder()
+                .id(request.getGroupId())
+                .name("Java Group")
+                .status(GroupStatus.ACTIVE)
+                .build();
+
+        when(studyGroupRepository.findById(request.getGroupId()))
+                .thenReturn(Optional.of(studyGroup));
+        when(userRepository.findById(request.getTeacherId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> lessonService.create(request))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(studyGroupRepository, times(1)).findById(request.getGroupId());
+        verify(userRepository, times(1)).findById(request.getTeacherId());
+
+        verify(lessonOverlapService, never()).checkTeacherOverlap(any(), any(), any(), any(), any());
+        verify(lessonMapper, never()).toEntity(any());
+        verify(lessonRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Тест 14: create — если есть пересечение по преподавателю, исключение пробрасывается дальше")
+    void create_TeacherOverlap_ThrowsException() {
+
+        LessonCreateRequest request = createValidLessonCreateRequest();
+
+        StudyGroup studyGroup = StudyGroup.builder()
+                .id(request.getGroupId())
+                .name("Java Group")
+                .status(GroupStatus.ACTIVE)
+                .build();
+
+        User teacher = User.builder()
+                .id(request.getTeacherId())
+                .firstName("Ivan")
+                .lastName("Ivanov")
+                .email("teacher@test.com")
+                .enabled(true)
+                .build();
+
+        when(studyGroupRepository.findById(request.getGroupId()))
+                .thenReturn(Optional.of(studyGroup));
+        when(userRepository.findById(request.getTeacherId()))
+                .thenReturn(Optional.of(teacher));
+
+        org.mockito.Mockito.doThrow(new BadRequestException("У преподавателя уже есть занятие в это время"))
+                .when(lessonOverlapService)
+                .checkTeacherOverlap(
+                        eq(teacher.getId()),
+                        eq(request.getLessonDate()),
+                        eq(request.getStartTime()),
+                        eq(request.getEndTime()),
+                        isNull()
+                );
+
+        assertThatThrownBy(() -> lessonService.create(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("У преподавателя уже есть занятие в это время");
+
+        verify(studyGroupRepository, times(1)).findById(request.getGroupId());
+        verify(userRepository, times(1)).findById(request.getTeacherId());
+
+        verify(lessonOverlapService, times(1)).checkTeacherOverlap(
+                eq(teacher.getId()),
+                eq(request.getLessonDate()),
+                eq(request.getStartTime()),
+                eq(request.getEndTime()),
+                isNull()
+        );
+
+        verify(lessonMapper, never()).toEntity(any());
+        verify(lessonRepository, never()).save(any());
+    }
+
+    private LessonCreateRequest createValidLessonCreateRequest() {
+        LessonCreateRequest request = new LessonCreateRequest();
+        request.setGroupId(1L);
+        request.setTeacherId(2L);
+        request.setTopic("Java Collections");
+        request.setDescription("Lesson about List, Set and Map");
+        request.setLessonDate(LocalDate.of(2025, 1, 20));
+        request.setStartTime(LocalTime.of(10, 0));
+        request.setEndTime(LocalTime.of(11, 30));
+        return request;
     }
 }

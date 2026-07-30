@@ -1,5 +1,6 @@
 package com.covenantcode.crm.dto.lesson;
-
+import com.covenantcode.crm.dto.group.StudyGroupShortResponse;
+import com.covenantcode.crm.dto.group.UserShortResponse;
 import lombok.Builder;
 import lombok.Data;
 
@@ -12,8 +13,8 @@ import java.time.OffsetDateTime;
 public class LessonResponse {
 
     private Long id;
-    private Long studyGroupId;
-    private Long teacherId;
+    private StudyGroupShortResponse studyGroup;
+    private UserShortResponse teacher;
     private String topic;
     private String description;
     private LocalDate lessonDate;
@@ -21,5 +22,4 @@ public class LessonResponse {
     private LocalTime endTime;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
-    private String teacherEmail;
 }

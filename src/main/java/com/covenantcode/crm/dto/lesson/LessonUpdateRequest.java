@@ -3,9 +3,10 @@ package com.covenantcode.crm.dto.lesson;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import lombok.Data;
+
 import java.time.LocalDate;
 import java.time.LocalTime;
-import lombok.Data;
 
 @Data
 public class LessonUpdateRequest {

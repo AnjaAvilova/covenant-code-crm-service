@@ -1,6 +1,5 @@
 package com.covenantcode.crm.service.impl;
 
-
 import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
 import com.covenantcode.crm.dto.lesson.LessonUpdateRequest;
@@ -19,8 +18,10 @@ import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.service.LessonOverlapService;
 import com.covenantcode.crm.service.LessonService;
 import com.covenantcode.crm.utils.CurrentUserProvider;
-import jakarta.persistence.EntityNotFoundException;
+
 import java.time.LocalDate;
+import java.time.LocalTime;
+
 import lombok.AllArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,10 +36,10 @@ public class LessonServiceImpl implements LessonService {
 
     private final LessonRepository lessonRepository;
     private final UserRepository userRepository;
-    private final LessonMapper lessonMapper;
-    private final CurrentUserProvider currentUserProvider;
     private final StudyGroupRepository studyGroupRepository;
+    private final LessonMapper lessonMapper;
     private final LessonOverlapService lessonOverlapService;
+    private final CurrentUserProvider currentUserProvider;
 
     @Override
     @Transactional(readOnly = true)
@@ -56,26 +57,61 @@ public class LessonServiceImpl implements LessonService {
     @Override
     @Transactional
     public LessonResponse create(LessonCreateRequest request) {
+        validateLessonTime(request.getStartTime(), request.getEndTime());
+
+        StudyGroup studyGroup = studyGroupRepository.findById(request.getGroupId())
+                .orElseThrow(() -> new ResourceNotFoundException("StudyGroup", request.getGroupId()));
+
+        validateStudyGroupIsActive(studyGroup);
+
         User teacher = userRepository.findById(request.getTeacherId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", request.getTeacherId()));
 
-        Lesson lesson = lessonMapper.toEntity(request, teacher);
+        lessonOverlapService.checkTeacherOverlap(
+                teacher.getId(),
+                request.getLessonDate(),
+                request.getStartTime(),
+                request.getEndTime(),
+                null
+        );
+
+        Lesson lesson = lessonMapper.toEntity(request);
+        lesson.setStudyGroup(studyGroup);
+        lesson.setTeacher(teacher);
 
         Lesson savedLesson = lessonRepository.save(lesson);
 
         return lessonMapper.toResponse(savedLesson);
     }
 
-    @Override
     @Transactional
-    public LessonResponse update(Long id, LessonCreateRequest request) {
+    @Override
+    public LessonResponse update(Long id, LessonUpdateRequest request) {
+        validateLessonTime(request.getStartTime(), request.getEndTime());
+
         Lesson lesson = lessonRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lesson", id));
+
+
+        StudyGroup studyGroup = studyGroupRepository.findById(request.getGroupId())
+                .orElseThrow(() -> new ResourceNotFoundException("StudyGroup", request.getGroupId()));
+
+        validateStudyGroupIsActive(studyGroup);
 
         User teacher = userRepository.findById(request.getTeacherId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", request.getTeacherId()));
 
-        lessonMapper.updateEntity(lesson, request, teacher);
+        lessonOverlapService.checkTeacherOverlap(
+                teacher.getId(),
+                request.getLessonDate(),
+                request.getStartTime(),
+                request.getEndTime(),
+                id
+        );
+
+        lessonMapper.updateEntity(lesson, request);
+        lesson.setStudyGroup(studyGroup);
+        lesson.setTeacher(teacher);
 
         Lesson savedLesson = lessonRepository.save(lesson);
 
@@ -135,58 +171,20 @@ public class LessonServiceImpl implements LessonService {
 
         return lessonPage.map(lessonMapper::toResponse);
     }
-    @Override
-    @Transactional
-    public LessonResponse update(Long id, LessonUpdateRequest request) {
-        // Шаг 1. Загрузка обновляемого занятия
-        Lesson existingLesson = lessonRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException(String.format("Lesson с id %d не найдено", id)));
 
-        // Шаг 2. Проверка статуса текущей группы (точный текст с "ё")
-        if (existingLesson.getStudyGroup() != null && existingLesson.getStudyGroup().getStatus() == GroupStatus.COMPLETED) {
-            throw new BadRequestException("Нельзя редактировать занятия завершённой группы");
+    private void validateLessonTime(LocalTime startTime, LocalTime endTime) {
+        if (startTime == null || endTime == null) {
+            throw new BadRequestException("Обязательное время начала и окончания урок");
         }
 
-        // Шаг 3. Загрузка и проверка новой группы (строго один раз)
-        StudyGroup studyGroup = studyGroupRepository.findById(request.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException("StudyGroup", request.getGroupId()));
-
-        if (studyGroup.getStatus() != GroupStatus.ACTIVE) {
-            throw new BadRequestException("Занятия можно создавать только для активных групп");
+        if (!endTime.isAfter(startTime)) {
+            throw new BadRequestException("Время окончания урока должно быть позже времени начала");
         }
-
-        // Шаг 4. Загрузка преподавателя
-        User teacher = userRepository.findById(request.getTeacherId())
-                .orElseThrow(() -> new ResourceNotFoundException("User", request.getTeacherId()));
-
-        // Шаг 5. Проверка корректности временного интервала
-        if (!request.getEndTime().isAfter(request.getStartTime())) {
-            throw new BadRequestException("Время окончания должно быть позже времени начала");
-        }
-
-        // Шаг 6. Проверка пересечений (overlap) с исключением текущего занятия (передаем id)
-        lessonOverlapService.checkTeacherOverlap(
-                request.getTeacherId(),
-                request.getLessonDate(),
-                request.getStartTime(),
-                request.getEndTime(),
-                id
-        );
-
-        // Обновляем сущность из провалидированных данных (сеттеры исправлены)
-        existingLesson.setStudyGroup(studyGroup);
-        existingLesson.setTeacher(teacher);
-        existingLesson.setTopic(request.getTopic());
-        existingLesson.setDescription(request.getDescription());
-        existingLesson.setLessonDate(request.getLessonDate());
-        existingLesson.setStartTime(request.getStartTime());
-        existingLesson.setEndTime(request.getEndTime());
-
-        // Сохраняем обычным save() в переменную
-        Lesson savedLesson = lessonRepository.save(existingLesson);
-
-        // Маппер сам заполнит studyGroupId из сущности, ручной сеттер удален
-        return lessonMapper.toResponse(savedLesson);
     }
 
+    private void validateStudyGroupIsActive(StudyGroup studyGroup) {
+        if (studyGroup.getStatus() != GroupStatus.ACTIVE) {
+            throw new BadRequestException("Группа студентов должна быть в статусе ACTIVE");
+        }
+    }
 }
