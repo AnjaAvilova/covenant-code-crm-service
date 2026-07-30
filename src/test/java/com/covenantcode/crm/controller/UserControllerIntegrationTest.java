@@ -8,7 +8,9 @@ import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -86,12 +88,6 @@ public class UserControllerIntegrationTest extends BaseIntegrationTest {
 
         adminToken = jwtService.generateToken(adminUser);
         managerToken = jwtService.generateToken(managerUser);
-    }
-
-    @AfterEach
-    void tearDown() {
-        studyGroupRepository.deleteAll();
-        userRepository.deleteAll();
     }
 
     @Test

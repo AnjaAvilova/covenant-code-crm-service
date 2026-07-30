@@ -18,7 +18,6 @@ import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -88,13 +87,6 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
-
-        studyGroupRepository.deleteAllInBatch();
-        studentRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        courseRepository.deleteAllInBatch();
-        roleRepository.deleteAll();
-
 
         Role teacherRole = roleRepository.findByName(RoleName.TEACHER)
                 .orElseGet(() -> {
@@ -223,14 +215,6 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
                 .role(teacherRole)
                 .enabled(true)
                 .build());
-    }
-
-    @AfterEach
-    void tearDown() {
-        studyGroupRepository.deleteAllInBatch();
-        studentRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        courseRepository.deleteAllInBatch();
     }
 
     @Test
@@ -601,6 +585,7 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
                         .content(objectMapper.writeValueAsString(updateRequest)))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
     }
+
     @Test
     @DisplayName("Тест 4: Пользователь с ролью TEACHER не имеет прав на обновление группы и получает 403")
     void updateStudyGroup_WhenUserIsTeacher_Returns403Forbidden() throws Exception {
@@ -631,6 +616,7 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
 
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
     }
+
     @WithUserDetails(value = "admin@test.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
     @DisplayName("Тест 1: ADMIN получает любую группу → 200")
     void getGroupById_Admin_ShouldReturn200() throws Exception {
@@ -893,5 +879,97 @@ class StudyGroupControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(APPLICATION_JSON)
                         .content(requestJson))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithUserDetails(value = "admin@test.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+    @DisplayName("GET /{id}/students — ADMIN получает студентов группы -> 200")
+    void getStudentsByGroupId_Admin_ShouldReturn200() throws Exception {
+        Long groupId = studyGroupRepository.findAll().stream()
+                .findFirst()
+                .map(StudyGroup::getId)
+                .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[*].firstName").exists());
+    }
+
+    @Test
+    @WithUserDetails(value = "teacher@test.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+    @DisplayName("GET /{id}/students — TEACHER получает студентов своей группы -> 200")
+    void getStudentsByGroupId_TeacherOwnGroup_ShouldReturn200() throws Exception {
+        Long groupId = studyGroupRepository.findAll().stream()
+                .filter(g -> g.getTeacher().getId().equals(teacher.getId()))
+                .findFirst()
+                .map(StudyGroup::getId)
+                .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    @WithUserDetails(value = "teacher2@test.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+    @DisplayName("GET /{id}/students — TEACHER пытается получить студентов чужой группы -> 403")
+    void getStudentsByGroupId_TeacherOtherGroup_ShouldReturn403() throws Exception {
+        Long groupId = studyGroupRepository.findAll().stream()
+                .filter(g -> !g.getTeacher().getId().equals(teacher2.getId()))
+                .findFirst()
+                .map(StudyGroup::getId)
+                .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithUserDetails(value = "student@test.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+    @DisplayName("GET /{id}/students — STUDENT не имеет доступа к списку студентов группы -> 403")
+    void getStudentsByGroupId_StudentRole_ShouldReturn403() throws Exception {
+        Long groupId = studyGroupRepository.findAll().stream()
+                .findFirst()
+                .map(StudyGroup::getId)
+                .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/groups/{id}/students", groupId)
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithUserDetails(value = "admin@test.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+    @DisplayName("GET /{id}/students — группа не найдена -> 404")
+    void getStudentsByGroupId_GroupNotFound_ShouldReturn404() throws Exception {
+        Long nonExistentId = 99999L;
+
+        mockMvc.perform(get("/api/v1/groups/{id}/students", nonExistentId)
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("resource-not-found"));
+    }
+
+    @Test
+    @WithUserDetails(value = "admin@test.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+    @DisplayName("GET /{id}/students — пустая группа -> 200 с пустым массивом")
+    void getStudentsByGroupId_EmptyGroup_ShouldReturn200WithEmptyArray() throws Exception {
+        StudyGroup emptyGroup = studyGroupRepository.save(StudyGroup.builder()
+                .name("Empty Group for Test")
+                .course(testCourse)
+                .teacher(teacher)
+                .startDate(LocalDate.now().plusDays(7))
+                .status(GroupStatus.DRAFT)
+                .students(new HashSet<>())
+                .build());
+
+        mockMvc.perform(get("/api/v1/groups/{id}/students", emptyGroup.getId())
+                        .contentType(APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
     }
 }

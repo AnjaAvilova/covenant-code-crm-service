@@ -17,10 +17,6 @@ import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +27,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -41,7 +40,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Transactional
 class LessonControllerIntegrationTest extends BaseIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
@@ -93,13 +91,6 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Очищаем таблицы в каскадном порядке
-        lessonRepository.deleteAll();
-        studyGroupRepository.deleteAll();
-        userRepository.deleteAll();
-        courseRepository.deleteAll();
-        roleRepository.deleteAll();
-
         // 1. Сначала создаем и сохраняем обязательные роли
         Role adminRole = roleRepository.findByName(RoleName.ADMIN)
                 .orElseGet(() -> {
@@ -199,15 +190,6 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
         adminToken = jwtService.generateToken(testAdmin);
         managerToken = jwtService.generateToken(testManager);
         teacherToken = jwtService.generateToken(testTeacher);
-    }
-
-    @AfterEach
-    void tearDown() {
-        lessonRepository.deleteAll();
-        studyGroupRepository.deleteAll();
-        userRepository.deleteAll();
-        courseRepository.deleteAll();
-        roleRepository.deleteAll();
     }
 
     @Test

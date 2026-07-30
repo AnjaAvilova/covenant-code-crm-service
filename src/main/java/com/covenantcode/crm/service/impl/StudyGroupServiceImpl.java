@@ -183,17 +183,21 @@ public class StudyGroupServiceImpl implements StudyGroupService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<StudentResponse> getGroupStudents(Long id) {
-        StudyGroup group = findGroupByIdOrThrow(id);
+    public List<StudentResponse> getStudentsOfGroup(Long groupId, User currentUser) {
 
-        if (currentUserProvider.isTeacher()) {
-            checkTeacherHasAccessToGroup(group);
+        StudyGroup group = findGroupByIdOrThrow(groupId);
+
+        RoleName role = currentUser.getRole().getName();
+
+        if (role == RoleName.TEACHER) {
+            if (group.getTeacher() == null || !group.getTeacher().getId().equals(currentUser.getId())) {
+                throw new AccessDeniedException("Access Denied");
+            }
         }
 
-        return group.getStudents()
-                .stream()
-                .map(studentMapper::toResponse)
-                .toList();
+        Set<Student> students = group.getStudents();
+
+        return students.stream().map(studentMapper::toResponse).toList();
     }
 
     @Override

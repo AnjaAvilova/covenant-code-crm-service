@@ -4,22 +4,20 @@ import com.covenantcode.crm.BaseIntegrationTest;
 import com.covenantcode.crm.dto.student.StudentCreateRequest;
 import com.covenantcode.crm.dto.student.StudentUpdateRequest;
 import com.covenantcode.crm.entity.Course;
-import com.covenantcode.crm.entity.User;
+import com.covenantcode.crm.entity.Role;
 import com.covenantcode.crm.entity.Student;
 import com.covenantcode.crm.entity.StudyGroup;
-import com.covenantcode.crm.entity.Role;
+import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.CourseStatus;
 import com.covenantcode.crm.entity.enums.GroupStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
-import com.covenantcode.crm.repository.StudyGroupRepository;
-import com.covenantcode.crm.repository.StudentRepository;
-import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.repository.CourseRepository;
 import com.covenantcode.crm.repository.RoleRepository;
+import com.covenantcode.crm.repository.StudentRepository;
+import com.covenantcode.crm.repository.StudyGroupRepository;
+import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,9 +26,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -39,20 +34,21 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.hasSize;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Transactional
 class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
@@ -164,14 +160,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     private Role getOrCreateRole(RoleName roleName) {
         return roleRepository.findByName(roleName)
                 .orElseGet(() -> roleRepository.save(Role.builder().name(roleName).build()));
-    }
-
-    @AfterEach
-    void tearDown() {
-        studyGroupRepository.deleteAll();
-        studentRepository.deleteAll();
-        userRepository.deleteAll();
-        courseRepository.deleteAll();
     }
 
     @Test
@@ -413,10 +401,6 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("GET /api/v1/students?search=Смир — поиск по частичному имени (200)")
     @WithMockUser(username = "manager@example.com", roles = "MANAGER")
     void getAllStudents_SearchByPartialName_ShouldReturnFilteredStudents() throws Exception {
-        studyGroupRepository.deleteAll();
-        studentRepository.deleteAll();
-        userRepository.deleteAll();
-        courseRepository.deleteAll();
 
         Role managerRole = getOrCreateRole(RoleName.MANAGER);
 
@@ -488,20 +472,14 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("GET /api/v1/students?search=7916 — поиск по телефону (200)")
     @WithMockUser(username = "manager@example.com", roles = "MANAGER")
     void getAllStudents_SearchByPhone_ShouldReturnFilteredStudents() throws Exception {
-        studyGroupRepository.deleteAll();
-        studentRepository.deleteAll();
-        userRepository.deleteAll();
-        courseRepository.deleteAll();
 
-        Role managerRole = getOrCreateRole(RoleName.MANAGER);
-
+        Role managerRole = roleRepository.findByName(RoleName.MANAGER).orElseThrow();
         User manager = User.builder()
                 .firstName("Manager")
                 .lastName("Test")
                 .email("manager@example.com")
                 .password("password")
                 .role(managerRole)
-                .enabled(true)
                 .build();
         userRepository.save(manager);
 

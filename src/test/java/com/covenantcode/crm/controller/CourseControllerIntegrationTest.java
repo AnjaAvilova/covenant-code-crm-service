@@ -10,14 +10,13 @@ import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.CourseStatus;
 import com.covenantcode.crm.entity.enums.GroupStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
+import com.covenantcode.crm.repository.CourseRepository;
 import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import com.covenantcode.crm.repository.CourseRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -34,13 +33,13 @@ import java.util.Optional;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 
 @AutoConfigureMockMvc
@@ -67,9 +66,6 @@ public class CourseControllerIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     void setUp() {
 
-        studyGroupRepository.deleteAll();
-        courseRepository.deleteAll();
-
         Course javaCourse = new Course();
         javaCourse.setTitle("Java Backend");
         javaCourse.setStatus(CourseStatus.ACTIVE);
@@ -85,12 +81,6 @@ public class CourseControllerIntegrationTest extends BaseIntegrationTest {
         pythonCourse.setDescription("Description for English");
 
         courseRepository.save(pythonCourse);
-    }
-
-    @AfterEach
-    void tearDown() {
-        studyGroupRepository.deleteAll();
-        courseRepository.deleteAll();
     }
 
     @Test

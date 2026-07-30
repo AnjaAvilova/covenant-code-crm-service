@@ -25,8 +25,6 @@ public interface StudyGroupService{
 
     StudyGroupResponse update(Long id, StudyGroupUpdateRequest request);
 
-    List<StudentResponse> getGroupStudents(Long id);
-
     List<LessonResponse> getGroupLessons(Long id);
 
     StudyGroupResponse getById(Long id, User currentUser);
@@ -35,4 +33,5 @@ public interface StudyGroupService{
 
     StudyGroupResponse addStudent(Long groupId, AddStudentToGroupRequest request);
 
+    List<StudentResponse> getStudentsOfGroup(Long groupId, User currentUser);
 }

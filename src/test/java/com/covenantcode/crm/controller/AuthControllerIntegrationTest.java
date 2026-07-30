@@ -8,11 +8,11 @@ import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.UserRepository;
-
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -66,11 +66,6 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                 .enabled(true)
                 .build();
         testUser = userRepository.save(testUser);
-    }
-
-    @AfterEach
-    void tearDown() {
-        userRepository.deleteAll();
     }
 
     @Test
