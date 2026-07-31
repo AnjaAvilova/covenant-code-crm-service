@@ -6,14 +6,19 @@ import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
 import com.covenantcode.crm.dto.lesson.LessonUpdateRequest;
 import com.covenantcode.crm.entity.Lesson;
+import com.covenantcode.crm.entity.Role;
+import com.covenantcode.crm.entity.Student;
 import com.covenantcode.crm.entity.StudyGroup;
 import com.covenantcode.crm.entity.User;
 import com.covenantcode.crm.entity.enums.GroupStatus;
+import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.exception.BadRequestException;
 import com.covenantcode.crm.exception.ConflictException;
+import com.covenantcode.crm.exception.ForbiddenException;
 import com.covenantcode.crm.exception.ResourceNotFoundException;
 import com.covenantcode.crm.mapper.LessonMapper;
 import com.covenantcode.crm.repository.LessonRepository;
+import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.service.LessonOverlapService;
@@ -21,6 +26,7 @@ import com.covenantcode.crm.utils.CurrentUserProvider;
 import java.time.LocalDate;
 import java.time.LocalTime;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +42,8 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -43,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -78,6 +87,15 @@ class LessonServiceImplTest {
     @Mock
     private LessonOverlapService lessonOverlapService;
 
+    @Mock
+    private StudentRepository studentRepository;
+
+    @Mock
+    private Authentication authentication;
+
+    @Mock
+    private UserDetails userDetails;
+
     @InjectMocks
     private LessonServiceImpl lessonService;
 
@@ -88,6 +106,25 @@ class LessonServiceImplTest {
     private final LocalDate lessonDate = LocalDate.of(2026, 9, 1);
     private final LocalTime startTime = LocalTime.of(9, 0);
     private final LocalTime endTime = LocalTime.of(11, 0);
+
+    private final Long GET_BY_ID_LESSON_ID = 1L;
+    private final Long ADMIN_ID = 1L;
+    private final Long TEACHER_ID = 3L;
+    private final Long OTHER_TEACHER_ID = 5L;
+    private final Long STUDENT_ID = 10L;
+    private final Long GROUP_ID_FOR_GET = 100L;
+
+    private Lesson lessonForGetById;
+    private User adminUser;
+    private User teacherForGetById;
+    private User otherTeacherUser;
+    private User studentUserEntity;
+    private Student studentEntity;
+    private StudyGroup studyGroupForGetById;
+    private LessonResponse lessonResponseForGetById;
+    private Role teacherRole;
+    private Role adminRole;
+    private Role studentRole;
 
     private LessonUpdateRequest createValidRequest() {
         LessonUpdateRequest request = new LessonUpdateRequest();
@@ -118,6 +155,76 @@ class LessonServiceImplTest {
         existingLesson.setId(lessonId);
         existingLesson.setStudyGroup(activeGroup);
         existingLesson.setTeacher(teacher);
+
+        teacherRole = new Role();
+        teacherRole.setId(1L);
+        teacherRole.setName(RoleName.TEACHER);
+
+        adminRole = new Role();
+        adminRole.setId(2L);
+        adminRole.setName(RoleName.ADMIN);
+
+        studentRole = new Role();
+        studentRole.setId(3L);
+        studentRole.setName(RoleName.STUDENT);
+
+        teacherForGetById = new User();
+        teacherForGetById.setId(TEACHER_ID);
+        teacherForGetById.setEmail("teacher@example.com");
+        teacherForGetById.setRole(teacherRole);
+
+        adminUser = new User();
+        adminUser.setId(ADMIN_ID);
+        adminUser.setEmail("admin@example.com");
+        adminUser.setRole(adminRole);
+
+        otherTeacherUser = new User();
+        otherTeacherUser.setId(OTHER_TEACHER_ID);
+        otherTeacherUser.setEmail("other@example.com");
+        otherTeacherUser.setRole(teacherRole);
+
+        studentUserEntity = new User();
+        studentUserEntity.setId(STUDENT_ID);
+        studentUserEntity.setEmail("student@example.com");
+        studentUserEntity.setRole(studentRole);
+
+        studyGroupForGetById = new StudyGroup();
+        studyGroupForGetById.setId(GROUP_ID_FOR_GET);
+        studyGroupForGetById.setName("Test Group");
+        studyGroupForGetById.setStudents(new HashSet<>());
+
+        studentEntity = new Student();
+        studentEntity.setId(1L);
+        studentEntity.setUser(studentUserEntity);
+        studentEntity.setStudyGroups(new HashSet<>());
+
+        studyGroupForGetById.getStudents().add(studentEntity);
+        studentEntity.getStudyGroups().add(studyGroupForGetById);
+
+        lessonForGetById = new Lesson();
+        lessonForGetById.setId(GET_BY_ID_LESSON_ID);
+        lessonForGetById.setTeacher(teacherForGetById);
+        lessonForGetById.setStudyGroup(studyGroupForGetById);
+        lessonForGetById.setTopic("Test Lesson");
+        lessonForGetById.setDescription("Test Description");
+        lessonForGetById.setLessonDate(LocalDate.now());
+        lessonForGetById.setStartTime(LocalTime.of(10, 0));
+        lessonForGetById.setEndTime(LocalTime.of(11, 30));
+
+        lessonResponseForGetById = LessonResponse.builder()
+                .id(GET_BY_ID_LESSON_ID)
+                .teacher(UserShortResponse.builder()
+                        .id(TEACHER_ID)
+                        .build())
+                .studyGroup(StudyGroupShortResponse.builder()
+                        .id(GROUP_ID_FOR_GET)
+                        .build())
+                .topic("Test Lesson")
+                .description("Test Description")
+                .lessonDate(LocalDate.now())
+                .startTime(LocalTime.of(10, 0))
+                .endTime(LocalTime.of(11, 30))
+                .build();
     }
 
     @Test
@@ -590,5 +697,107 @@ class LessonServiceImplTest {
         request.setStartTime(LocalTime.of(10, 0));
         request.setEndTime(LocalTime.of(11, 30));
         return request;
+    }
+
+    private void setupAuthenticationWithUser(User user) {
+        when(authentication.getPrincipal()).thenReturn(userDetails);
+        when(userDetails.getUsername()).thenReturn(user.getEmail());
+        when(userRepository.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
+    }
+
+    @Test
+    @DisplayName("Администратор получает занятие — успех")
+    void getById_AdminUser_Success() {
+        setupAuthenticationWithUser(adminUser);
+        when(lessonRepository.findById(GET_BY_ID_LESSON_ID)).thenReturn(Optional.of(lessonForGetById));
+        when(lessonMapper.toResponse(lessonForGetById)).thenReturn(lessonResponseForGetById);
+
+        LessonResponse result = lessonService.getById(GET_BY_ID_LESSON_ID, authentication);
+
+        assertNotNull(result);
+        assertEquals(GET_BY_ID_LESSON_ID, result.getId());
+        assertEquals(TEACHER_ID, result.getTeacher().getId());
+        assertEquals("Test Lesson", result.getTopic());
+
+        verify(lessonRepository).findById(GET_BY_ID_LESSON_ID);
+        verify(lessonMapper).toResponse(lessonForGetById);
+        verify(userRepository).findByEmail(adminUser.getEmail());
+        verifyNoInteractions(studentRepository);
+    }
+
+    @Test
+    @DisplayName("Преподаватель получает своё занятие — успех")
+    void getById_TeacherOwnLesson_Success() {
+        setupAuthenticationWithUser(teacherForGetById);
+        when(lessonRepository.findById(GET_BY_ID_LESSON_ID)).thenReturn(Optional.of(lessonForGetById));
+        when(lessonMapper.toResponse(lessonForGetById)).thenReturn(lessonResponseForGetById);
+
+        LessonResponse result = lessonService.getById(GET_BY_ID_LESSON_ID, authentication);
+
+        assertNotNull(result);
+        assertEquals(GET_BY_ID_LESSON_ID, result.getId());
+        assertEquals(TEACHER_ID, result.getTeacher().getId());
+
+        verify(lessonRepository).findById(GET_BY_ID_LESSON_ID);
+        verify(lessonMapper).toResponse(lessonForGetById);
+        verify(userRepository).findByEmail(teacherForGetById.getEmail());
+        verifyNoInteractions(studentRepository);
+    }
+
+    @Test
+    @DisplayName("Преподаватель получает чужое занятие — ForbiddenException")
+    void getById_TeacherOtherLesson_ThrowsForbiddenException() {
+        setupAuthenticationWithUser(otherTeacherUser);
+        when(lessonRepository.findById(GET_BY_ID_LESSON_ID)).thenReturn(Optional.of(lessonForGetById));
+
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> lessonService.getById(GET_BY_ID_LESSON_ID, authentication)
+        );
+        assertEquals("У вас нет доступа к этому занятию", exception.getMessage());
+
+        verify(lessonRepository).findById(GET_BY_ID_LESSON_ID);
+        verify(userRepository).findByEmail(otherTeacherUser.getEmail());
+        verifyNoInteractions(studentRepository);
+        verify(lessonMapper, never()).toResponse(any());
+    }
+
+    @Test
+    @DisplayName("Студент получает занятие своей группы — успех")
+    void getById_StudentOwnGroupLesson_Success() {
+        setupAuthenticationWithUser(studentUserEntity);
+        when(lessonRepository.findById(GET_BY_ID_LESSON_ID)).thenReturn(Optional.of(lessonForGetById));
+        when(studentRepository.findByUser_Id(STUDENT_ID)).thenReturn(Optional.of(studentEntity));
+        when(lessonMapper.toResponse(lessonForGetById)).thenReturn(lessonResponseForGetById);
+
+        LessonResponse result = lessonService.getById(GET_BY_ID_LESSON_ID, authentication);
+
+        assertNotNull(result);
+        assertEquals(GET_BY_ID_LESSON_ID, result.getId());
+        assertEquals(TEACHER_ID, result.getTeacher().getId());
+
+        verify(lessonRepository).findById(GET_BY_ID_LESSON_ID);
+        verify(userRepository).findByEmail(studentUserEntity.getEmail());
+        verify(studentRepository).findByUser_Id(STUDENT_ID);
+        verify(lessonMapper).toResponse(lessonForGetById);
+    }
+
+    @Test
+    @DisplayName("Занятие не найдено — ResourceNotFoundException")
+    void getById_LessonNotFound_ThrowsResourceNotFoundException() {
+        Long nonExistentId = 99L;
+        when(lessonRepository.findById(nonExistentId)).thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> lessonService.getById(nonExistentId, authentication)
+        );
+        assertTrue(exception.getMessage().contains("Lesson"));
+        assertTrue(exception.getMessage().contains(String.valueOf(nonExistentId)));
+
+        verify(lessonRepository).findById(nonExistentId);
+        verifyNoInteractions(userRepository);
+        verifyNoInteractions(studentRepository);
+        verify(lessonMapper, never()).toResponse(any());
     }
 }
