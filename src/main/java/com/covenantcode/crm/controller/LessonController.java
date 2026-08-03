@@ -54,6 +54,18 @@ public class LessonController {
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(
+            summary = "Удалить занятие",
+            description = "Удаляет занятие по идентификатору. Доступно только для занятий групп со статусом DRAFT или ACTIVE. " +
+                    "Удаление занятий завершённой группы (COMPLETED) запрещено."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Занятие успешно удалено"),
+            @ApiResponse(responseCode = "400", description = "Нельзя удалить занятие завершённой группы"),
+            @ApiResponse(responseCode = "401", description = "Пользователь не аутентифицирован"),
+            @ApiResponse(responseCode = "403", description = "Доступ запрещён (недостаточно прав)"),
+            @ApiResponse(responseCode = "404", description = "Занятие не найдено")
+    })
     public void delete(@PathVariable Long id) {
         lessonService.delete(id);
     }

@@ -46,6 +46,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 
 import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -92,10 +93,12 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
     private User testManager;
     private User testTeacher;
     private User anotherTeacher;
+    private User testStudent;
 
     private String adminToken;
     private String managerToken;
     private String teacherToken;
+    private String studentToken;
 
     private final String baseUrl = "/api/v1/lessons";
 
@@ -125,6 +128,13 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
                 .orElseGet(() -> {
                     Role r = new Role();
                     r.setName(RoleName.TEACHER);
+                    return roleRepository.save(r);
+                });
+
+        Role studentRole = roleRepository.findByName(RoleName.STUDENT)
+                .orElseGet(() -> {
+                    Role r = new Role();
+                    r.setName(RoleName.STUDENT);
                     return roleRepository.save(r);
                 });
 
@@ -201,10 +211,20 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
         anotherGroup.setStatus(GroupStatus.ACTIVE);
         anotherGroup = studyGroupRepository.save(anotherGroup);
 
+        testStudent = new User();
+        testStudent.setFirstName("Student");
+        testStudent.setLastName("Test");
+        testStudent.setEmail("student@test.com");
+        testStudent.setPassword(passwordEncoder.encode("password"));
+        testStudent.setRole(studentRole);
+        testStudent.setEnabled(true);
+        testStudent = userRepository.save(testStudent);
+
         // Генерируем валидные JWT-токены
         adminToken = jwtService.generateToken(testAdmin);
         managerToken = jwtService.generateToken(testManager);
         teacherToken = jwtService.generateToken(testTeacher);
+        studentToken = jwtService.generateToken(testStudent);
     }
 
     @Test
@@ -737,5 +757,68 @@ class LessonControllerIntegrationTest extends BaseIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("DELETE по существующему ID → HTTP 204 и занятие удаляется")
+    void delete_ExistingLesson_Returns204AndLessonDeleted() throws Exception {
+        Lesson lesson = createLesson(testGroup1, testTeacher, LocalDate.of(2026, 9, 1));
+        lesson = lessonRepository.save(lesson);
+        Long lessonId = lesson.getId();
+
+        mockMvc.perform(delete(baseUrl + "/{id}", lessonId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isNoContent());
+
+        assertThat(lessonRepository.findById(lessonId)).isEmpty();
+
+        mockMvc.perform(get(baseUrl + "/{id}", lessonId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("Тест 2: DELETE для занятия группы в статусе COMPLETED → HTTP 400")
+    void delete_LessonWithCompletedGroup_Returns400() throws Exception {
+        StudyGroup completedGroup = new StudyGroup();
+        completedGroup.setName("Completed Group");
+        completedGroup.setCourse(testCourse);
+        completedGroup.setTeacher(testTeacher);
+        completedGroup.setStartDate(LocalDate.of(2025, 1, 1));
+        completedGroup.setStatus(GroupStatus.COMPLETED);
+        completedGroup = studyGroupRepository.save(completedGroup);
+
+        Lesson lesson = createLesson(completedGroup, testTeacher, LocalDate.of(2025, 1, 15));
+        lesson = lessonRepository.save(lesson);
+
+        mockMvc.perform(delete(baseUrl + "/{id}", lesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Нельзя удалить занятие завершённой группы"));
+
+        assertThat(lessonRepository.findById(lesson.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("Тест 3: DELETE с несуществующим ID → HTTP 404")
+    void delete_NonExistentId_Returns404() throws Exception {
+        Long nonExistentId = 9999L;
+
+        mockMvc.perform(delete(baseUrl + "/{id}", nonExistentId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("Тест 4: DELETE с ролью STUDENT → HTTP 403")
+    void delete_WithStudentRole_Returns403() throws Exception {
+        Lesson lesson = createLesson(testGroup1, testTeacher, LocalDate.of(2026, 9, 1));
+        lesson = lessonRepository.save(lesson);
+
+        mockMvc.perform(delete(baseUrl + "/{id}", lesson.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(status().isForbidden());
+
+        assertThat(lessonRepository.findById(lesson.getId())).isPresent();
     }
 }
