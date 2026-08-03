@@ -50,10 +50,12 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -62,6 +64,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -907,4 +910,69 @@ class LessonServiceImplTest {
         Assertions.assertEquals("User с id 99 не найден", exception.getMessage());
     }
 
+    @Test
+    @DisplayName("Тест 1: успешное удаление занятия активной группы")
+    void delete_Success_ActiveGroup() {
+        // given
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(existingLesson));
+
+        // when / then
+        assertThatCode(() -> lessonService.delete(lessonId)).doesNotThrowAnyException();
+        verify(lessonRepository, times(1)).delete(existingLesson);
+    }
+
+    @Test
+    @DisplayName("Тест 2: группа в статусе COMPLETED — BadRequestException")
+    void delete_GroupCompleted_ThrowsBadRequest() {
+        StudyGroup completedGroup = new StudyGroup();
+        completedGroup.setId(groupId);
+        completedGroup.setStatus(GroupStatus.COMPLETED);
+
+        Lesson lessonWithCompletedGroup = new Lesson();
+        lessonWithCompletedGroup.setId(lessonId);
+        lessonWithCompletedGroup.setStudyGroup(completedGroup);
+
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lessonWithCompletedGroup));
+
+        BadRequestException exception = assertThrows(
+                BadRequestException.class,
+                () -> lessonService.delete(lessonId)
+        );
+        assertEquals("Нельзя удалить занятие завершённой группы", exception.getMessage());
+
+        verify(lessonRepository, never()).delete(any(Lesson.class));
+    }
+
+    @Test
+    @DisplayName("Тест 3: занятие группы в статусе DRAFT — успешное удаление")
+    void delete_Success_DraftGroup() {
+        StudyGroup draftGroup = new StudyGroup();
+        draftGroup.setId(groupId);
+        draftGroup.setStatus(GroupStatus.DRAFT);
+
+        Lesson lessonWithDraftGroup = new Lesson();
+        lessonWithDraftGroup.setId(lessonId);
+        lessonWithDraftGroup.setStudyGroup(draftGroup);
+
+        when(lessonRepository.findById(lessonId)).thenReturn(Optional.of(lessonWithDraftGroup));
+
+        assertThatCode(() -> lessonService.delete(lessonId)).doesNotThrowAnyException();
+        verify(lessonRepository, times(1)).delete(lessonWithDraftGroup);
+    }
+
+    @Test
+    @DisplayName("Тест 4: занятие не найдено — ResourceNotFoundException")
+    void delete_LessonNotFound_ThrowsResourceNotFound() {
+        Long nonExistentId = 99L;
+        when(lessonRepository.findById(nonExistentId)).thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> lessonService.delete(nonExistentId)
+        );
+        assertTrue(exception.getMessage().contains("Lesson"));
+        assertTrue(exception.getMessage().contains(String.valueOf(nonExistentId)));
+
+        verify(lessonRepository, never()).delete(any(Lesson.class));
+    }
 }

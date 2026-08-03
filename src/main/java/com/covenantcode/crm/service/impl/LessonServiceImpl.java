@@ -128,11 +128,14 @@ public class LessonServiceImpl implements LessonService {
     @Override
     @Transactional
     public void delete(Long id) {
-        if (!lessonRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Lesson", id);
+        Lesson lesson = lessonRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Lesson с id " + id + " не найдено"));
+
+        if (lesson.getStudyGroup().getStatus() == GroupStatus.COMPLETED) {
+            throw new BadRequestException("Нельзя удалить занятие завершённой группы");
         }
 
-        lessonRepository.deleteById(id);
+        lessonRepository.delete(lesson);
     }
 
     @Override
