@@ -5,6 +5,7 @@ import com.covenantcode.crm.dto.teacher.TeacherCreateRequest;
 import com.covenantcode.crm.dto.teacher.TeacherUpdateRequest;
 import com.covenantcode.crm.dto.user.EnabledUpdateRequest;
 import com.covenantcode.crm.entity.Course;
+import com.covenantcode.crm.entity.Lesson;
 import com.covenantcode.crm.entity.Role;
 import com.covenantcode.crm.entity.StudyGroup;
 import com.covenantcode.crm.entity.User;
@@ -12,11 +13,13 @@ import com.covenantcode.crm.entity.enums.CourseStatus;
 import com.covenantcode.crm.entity.enums.GroupStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.repository.CourseRepository;
+import com.covenantcode.crm.repository.LessonRepository;
 import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -76,8 +79,15 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
     @Autowired
     private CourseRepository courseRepository;
 
+    @Autowired
+    private LessonRepository lessonRepository;
+
     private String adminToken;
     private User testTeacher;
+    private String teacherToken;
+    private String otherTeacherToken;
+    private String studentToken;
+    private User otherTeacher;
 
     @BeforeEach
     void setUp() {
@@ -86,6 +96,8 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
                 .orElseGet(() -> roleRepository.save(Role.builder().name(RoleName.ADMIN).build()));
         Role teacherRole = roleRepository.findByName(RoleName.TEACHER)
                 .orElseGet(() -> roleRepository.save(Role.builder().name(RoleName.TEACHER).build()));
+        Role studentRole = roleRepository.findByName(RoleName.STUDENT)
+                .orElseGet(() -> roleRepository.save(Role.builder().name(RoleName.STUDENT).build()));
 
         User admin = User.builder()
                 .firstName("Admin")
@@ -113,7 +125,64 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
                 .build();
         userRepository.save(testTeacher);
 
+        otherTeacher = User.builder()
+                .firstName("Сергей").lastName("Сидоров").email("sergey.sidorov@school.ru")
+                .password(passwordEncoder.encode("teacher123")).phone("+79161234568")
+                .enabled(true).role(teacherRole)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).updatedAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build();
+        userRepository.save(otherTeacher);
+
+        User student = User.builder()
+                .firstName("Петр").lastName("Иванов").email("student@test.com")
+                .password(passwordEncoder.encode("student123")).phone("+79161234569")
+                .enabled(true).role(studentRole)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).updatedAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build();
+        userRepository.save(student);
+
         adminToken = jwtService.generateToken(admin);
+        teacherToken = jwtService.generateToken(testTeacher);
+        otherTeacherToken = jwtService.generateToken(otherTeacher);
+        studentToken = jwtService.generateToken(student);
+
+        // 4. Создание инфраструктуры для занятий (Course & StudyGroup)
+        Course course = Course.builder()
+                .title("Java-разработчик")
+                .description("Основы языка Java")
+                .durationInWeeks(12)
+                .price(new java.math.BigDecimal("50000.00"))
+                .status(CourseStatus.ACTIVE)
+                .build();
+        course = courseRepository.save(course);
+
+        StudyGroup studyGroup = StudyGroup.builder()
+                .name("Java-группа июнь 2026")
+                .course(course)
+                .teacher(testTeacher) // Исправлено: Передаем обязательное поле teacher_id
+                .startDate(LocalDate.of(2026, 6, 1)) // Исправлено: Передаем обязательное поле start_date
+                .status(GroupStatus.ACTIVE) // Исправлено: Передаем обязательное поле status
+                .build();
+        studyGroup = studyGroupRepository.save(studyGroup);
+
+        // 5. Сохранение тестовых занятий (пункт 5.1 ТЗ)
+        lessonRepository.save(Lesson.builder()
+                .teacher(testTeacher)
+                .studyGroup(studyGroup)
+                .topic("Введение в Java")
+                .lessonDate(LocalDate.of(2026, 6, 2))
+                .startTime(LocalTime.of(18, 0))
+                .endTime(LocalTime.of(19, 30))
+                .build());
+
+        lessonRepository.save(Lesson.builder()
+                .teacher(testTeacher)
+                .studyGroup(studyGroup)
+                .topic("Основы Java")
+                .lessonDate(LocalDate.of(2026, 6, 3))
+                .startTime(LocalTime.of(10, 0))
+                .endTime(LocalTime.of(11, 30))
+                .build());
     }
 
     @Test
@@ -172,29 +241,6 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("GET /api/v1/teachers с токеном STUDENT — возвращает 403 Forbidden")
     void getAllTeachers_withStudentToken_shouldReturn403() throws Exception {
-        Role studentRole = roleRepository.findByName(RoleName.STUDENT)
-                .orElseGet(() -> {
-                    Role newRole = Role.builder()
-                            .name(RoleName.STUDENT)
-                            .build();
-                    return roleRepository.save(newRole);
-                });
-
-        User student = User.builder()
-                .firstName("Student")
-                .lastName("Studentov")
-                .email("student@test.com")
-                .password(passwordEncoder.encode("student123"))
-                .phone("+79161234569")
-                .enabled(true)
-                .role(studentRole)
-                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
-                .updatedAt(OffsetDateTime.now(ZoneOffset.UTC))
-                .build();
-        userRepository.save(student);
-
-        String studentToken = jwtService.generateToken(student);
-
         mockMvc.perform(get("/api/v1/teachers")
                         .header("Authorization", "Bearer " + studentToken)
                         .contentType(MediaType.APPLICATION_JSON))
@@ -304,6 +350,9 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("DELETE /api/v1/teachers/{id} — 204 без групп, преподаватель удалён")
     void deleteTeacher_shouldReturn204_whenNoGroups() throws Exception {
+        lessonRepository.deleteAllInBatch();
+        studyGroupRepository.deleteAllInBatch();
+
         Long teacherId = testTeacher.getId();
 
         mockMvc.perform(delete("/api/v1/teachers/{id}", teacherId)
@@ -566,5 +615,63 @@ class TeacherControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value("forbidden"))
                 .andExpect(jsonPath("$.status").value(403));
+    }
+
+    @Test
+    @DisplayName("Тест 1: ADMIN запрашивает расписание любого преподавателя — успех")
+    void adminCanGetAnyTeacherSchedule_ShouldReturn200AndSortedList() throws Exception {
+        mockMvc.perform(get("/api/v1/teachers/{teacherId}/lessons", testTeacher.getId())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2))
+                // Проверяем сортировку: lessonDate ASC, startTime ASC согласно ТЗ
+                .andExpect(jsonPath("$[0].lessonDate").value("2026-06-02"))
+                .andExpect(jsonPath("$[0].startTime").value("18:00:00"))
+                .andExpect(jsonPath("$[1].lessonDate").value("2026-06-03"))
+                .andExpect(jsonPath("$[1].startTime").value("10:00:00"));
+    }
+
+    @Test
+    @DisplayName("Тест 2: TEACHER запрашивает своё расписание с фильтром по датам → HTTP 200")
+    void teacherCanGetOwnScheduleWithDateFilter_ShouldReturn200() throws Exception {
+        mockMvc.perform(get("/api/v1/teachers/{teacherId}/lessons", testTeacher.getId())
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("dateFrom", "2026-06-01")
+                        .param("dateTo", "2026-06-02"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                // По фильтру подходит только первое занятие (до 2026-06-02 включительно)
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].lessonDate").value("2026-06-02"))
+                .andExpect(jsonPath("$[0].topic").value("Введение в Java"));
+    }
+
+    @Test
+    @DisplayName("Тест 3: TEACHER запрашивает чужое расписание → HTTP 403")
+    void teacherCannotGetOtherTeacherSchedule_ShouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/teachers/{teacherId}/lessons", otherTeacher.getId())
+                        .header("Authorization", "Bearer " + teacherToken)) // Токен Ивана, а ID в URL Сергея
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Тест 4: несуществующий teacherId → HTTP 404")
+    void nonexistentTeacherId_ShouldReturn404() throws Exception {
+        Long nonexistentId = 999L;
+        mockMvc.perform(get("/api/v1/teachers/{teacherId}/lessons", nonexistentId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isNotFound())
+                // Валидация структуры глобальной ошибки по ТЗ
+                .andExpect(jsonPath("$.type").value("resource-not-found"))
+                .andExpect(jsonPath("$.detail").value("User с id " + nonexistentId + " не найден"));
+    }
+
+    @Test
+    @DisplayName("Тест 5: роль STUDENT → HTTP 403")
+    void studentRoleCannotAccessEndpoint_ShouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/teachers/{teacherId}/lessons", testTeacher.getId())
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isForbidden());
     }
 }

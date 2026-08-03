@@ -23,13 +23,13 @@ import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.service.LessonOverlapService;
 import com.covenantcode.crm.service.LessonService;
 import com.covenantcode.crm.utils.CurrentUserProvider;
-
 import java.time.LocalDate;
 import java.time.LocalTime;
-
+import java.util.List;
 import lombok.AllArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -185,6 +185,39 @@ public class LessonServiceImpl implements LessonService {
         if (studyGroup.getStatus() != GroupStatus.ACTIVE) {
             throw new BadRequestException("Группа студентов должна быть в статусе ACTIVE");
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<LessonResponse> getLessonsByTeacher(Long teacherId, LocalDate dateFrom,
+                                                    LocalDate dateTo, Authentication authentication) {
+
+        userRepository.findById(teacherId)
+                .orElseThrow(() -> new ResourceNotFoundException("User с id " + teacherId + " не найден"));
+
+        // 1. Безопасно извлекаем текущего пользователя (замечание 1)
+        User currentUser = extractUserFromAuthentication(authentication);
+
+        // 2. ИСПРАВЛЕНО: Проверка роли приведена к единому паттерну проекта через RoleName
+        boolean isTeacher = currentUser.getRole() != null
+                && currentUser.getRole().getName() == RoleName.TEACHER;
+
+        if (isTeacher && !currentUser.getId().equals(teacherId)) {
+            throw new ForbiddenException("Доступ к расписанию другого преподавателя запрещен");
+        }
+
+        // Оставшаяся часть логики спецификаций и маппинга
+        Specification<Lesson> specification = Specification.where(LessonSpecifications.hasTeacherId(teacherId))
+                .and(LessonSpecifications.hasDateFrom(dateFrom))
+                .and(LessonSpecifications.hasDateTo(dateTo));
+
+        Sort sort = Sort.by(Sort.Direction.ASC, "lessonDate", "startTime");
+
+        List<Lesson> lessons = lessonRepository.findAll(specification, sort);
+
+        return lessons.stream()
+                .map(lessonMapper::toResponse)
+                .toList();
     }
 
 
