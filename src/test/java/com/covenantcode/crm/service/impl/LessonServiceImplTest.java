@@ -25,32 +25,35 @@ import com.covenantcode.crm.service.LessonOverlapService;
 import com.covenantcode.crm.utils.CurrentUserProvider;
 import java.time.LocalDate;
 import java.time.LocalTime;
-
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -59,7 +62,6 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -800,4 +802,109 @@ class LessonServiceImplTest {
         verifyNoInteractions(studentRepository);
         verify(lessonMapper, never()).toResponse(any());
     }
+    @Test
+    @DisplayName("Тест getLessonsByTeacher 1: ADMIN запрашивает расписание любого преподавателя — успех")
+    void getLessonsByTeacher_WhenAdminRequests_ShouldReturnLessons() {
+        // Given
+        LocalDate dateFrom = lessonDate;
+        LocalDate dateTo = lessonDate.plusDays(7);
+
+        Lesson lesson2 = new Lesson();
+        lesson2.setId(2L);
+        List<Lesson> lessons = List.of(existingLesson, lesson2);
+
+        LessonResponse response1 = LessonResponse.builder().id(lessonId).build();
+        LessonResponse response2 = LessonResponse.builder().id(2L).build();
+
+        when(userRepository.findById(teacherId)).thenReturn(Optional.of(teacher));
+        when(lessonRepository.findAll(any(Specification.class), any(Sort.class))).thenReturn(lessons);
+        when(lessonMapper.toResponse(existingLesson)).thenReturn(response1);
+        when(lessonMapper.toResponse(lesson2)).thenReturn(response2);
+
+        // Используем реальный безопасный токен для ADMIN (id = 999)
+        User adminUser = new User();
+        adminUser.setId(999L);
+        Authentication authentication = new TestingAuthenticationToken(adminUser, null, "ROLE_ADMIN");
+
+        // When
+        List<LessonResponse> result = lessonService.getLessonsByTeacher(teacherId, dateFrom, dateTo, authentication);
+
+        // Then
+        assertThat(result).hasSize(2).containsExactly(response1, response2);
+        verify(userRepository).findById(teacherId);
+        verify(lessonRepository).findAll(any(Specification.class), any(Sort.class));
+    }
+    @Test
+    @DisplayName("Тест 2: TEACHER запрашивает своё расписание — успех")
+    void getLessonsByTeacher_WhenTeacherRequestsOwnSchedule_ShouldReturnLessons() {
+        // Given
+        LocalDate dateFrom = lessonDate;
+        LocalDate dateTo = lessonDate.plusDays(7);
+
+        when(userRepository.findById(teacherId)).thenReturn(Optional.of(teacher));
+        when(lessonRepository.findAll(any(Specification.class), any(Sort.class))).thenReturn(Collections.emptyList());
+
+        // Создаем токен для TEACHER (id = 10, совпадает с teacherId)
+        Authentication authentication = new TestingAuthenticationToken(teacher, null, "ROLE_TEACHER");
+
+        // When
+        List<LessonResponse> result = lessonService.getLessonsByTeacher(teacherId, dateFrom, dateTo, authentication);
+
+        // Then
+        assertNotNull(result);
+        assertTrue(result.isEmpty()); // Корректный пустой список [] при отсутствии занятий согласно п. 4.3 ТЗ
+
+        verify(lessonRepository).findAll(any(Specification.class), any(Sort.class));
+    }
+
+    @Test
+    @DisplayName("Тест 3: TEACHER запрашивает расписание другого преподавателя — ForbiddenException")
+    void getLessonsByTeacher_WhenTeacherRequestsSomeoneElsesSchedule_ShouldThrowForbiddenException() {
+        // Given
+        Long otherTeacherId = 555L;
+        User otherTeacher = new User();
+        otherTeacher.setId(otherTeacherId);
+
+        // ИСПРАВЛЕНО: Задаем роль нашему преподавателю (teacher из setUp()),
+        // чтобы currentUser.getRole().getName() не выбросил NullPointerException
+        teacher.setRole(teacherRole);
+
+        when(userRepository.findById(otherTeacherId)).thenReturn(Optional.of(otherTeacher));
+
+        // Используем TestingAuthenticationToken или Mock, передавая обновленный объект teacher
+        Authentication authentication = new TestingAuthenticationToken(teacher, null, "ROLE_TEACHER");
+
+        // When & Then
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> lessonService.getLessonsByTeacher(otherTeacherId, lessonDate, lessonDate, authentication)
+        );
+
+        assertEquals("Доступ к расписанию другого преподавателя запрещен", exception.getMessage());
+
+        verify(lessonRepository, never()).findAll(any(Specification.class), any(Sort.class));
+    }
+
+    @Test
+    @DisplayName("Тест 4: преподаватель не найден — ResourceNotFoundException")
+    void getLessonsByTeacher_WhenTeacherNotFound_ShouldThrowResourceNotFoundException() {
+        // Arrange
+        Long nonExistentTeacherId = 99L;
+        LocalDate dateFrom = null;
+        LocalDate dateTo = null;
+        Authentication authentication = Mockito.mock(Authentication.class);
+
+        // Мокаем репозиторий, чтобы он возвращал пустой Optional
+        Mockito.when(userRepository.findById(nonExistentTeacherId)).thenReturn(Optional.empty());
+
+        // Act & Assert
+        ResourceNotFoundException exception = Assertions.assertThrows(
+                ResourceNotFoundException.class,
+                () -> lessonService.getLessonsByTeacher(nonExistentTeacherId, dateFrom, dateTo, authentication)
+        );
+
+        // Проверяем, что сообщение об ошибке строго совпадает с ТЗ
+        Assertions.assertEquals("User с id 99 не найден", exception.getMessage());
+    }
+
 }
