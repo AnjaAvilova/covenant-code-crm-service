@@ -1,6 +1,5 @@
 package com.covenantcode.crm.service.impl;
 
-
 import com.covenantcode.crm.dto.lesson.LessonCreateRequest;
 import com.covenantcode.crm.dto.lesson.LessonResponse;
 import com.covenantcode.crm.dto.lesson.LessonUpdateRequest;
