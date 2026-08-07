@@ -27,4 +27,6 @@ public interface LessonService {
 
     List<LessonResponse> getLessonsByTeacher(Long teacherId, LocalDate dateFrom,
                                              LocalDate dateTo, Authentication authentication);
+
+    List<LessonResponse> getLessonsByStudent(Long studentId, LocalDate dateFrom, LocalDate dateTo, Authentication authentication);
 }

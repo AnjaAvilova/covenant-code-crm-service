@@ -4,6 +4,7 @@ import com.covenantcode.crm.BaseIntegrationTest;
 import com.covenantcode.crm.dto.student.StudentCreateRequest;
 import com.covenantcode.crm.dto.student.StudentUpdateRequest;
 import com.covenantcode.crm.entity.Course;
+import com.covenantcode.crm.entity.Lesson;
 import com.covenantcode.crm.entity.Role;
 import com.covenantcode.crm.entity.Student;
 import com.covenantcode.crm.entity.StudyGroup;
@@ -12,12 +13,19 @@ import com.covenantcode.crm.entity.enums.CourseStatus;
 import com.covenantcode.crm.entity.enums.GroupStatus;
 import com.covenantcode.crm.entity.enums.RoleName;
 import com.covenantcode.crm.repository.CourseRepository;
+import com.covenantcode.crm.repository.LessonRepository;
 import com.covenantcode.crm.repository.RoleRepository;
 import com.covenantcode.crm.repository.StudentRepository;
 import com.covenantcode.crm.repository.StudyGroupRepository;
 import com.covenantcode.crm.repository.UserRepository;
 import com.covenantcode.crm.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,12 +34,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -73,6 +75,9 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private LessonRepository lessonRepository;
 
     @Autowired
     private JwtService jwtService;
@@ -845,5 +850,121 @@ class StudentControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(delete("/api/v1/students/{id}", studentToDelete.getId())
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Тест 1: студент в двух группах → расписание содержит занятия из обеих, HTTP 200")
+    void getLessonsByStudent_MultipleGroups_ReturnsAllLessons() throws Exception {
+        // Arrange
+        // Создаем вторую группу и добавляем в нее текущего студента
+        StudyGroup studyGroup2 = studyGroupRepository.save(StudyGroup.builder()
+                .name("Java Advanced 202")
+                .course(course)
+                .teacher(teacherUser)
+                .startDate(LocalDate.now().plusDays(20))
+                .status(GroupStatus.ACTIVE)
+                .students(Set.of(student))
+                .build());
+
+        // Создаем занятия: первое — для базовой группы, второе — для продвинутой (с хронологическим порядком)
+        Lesson lessonGroup1 = lessonRepository.save(Lesson.builder()
+                .studyGroup(studyGroup)
+                .teacher(teacherUser)
+                .topic("Базовый синтаксис")
+                .lessonDate(LocalDate.now().plusDays(1))
+                .startTime(LocalTime.of(10, 0))
+                .endTime(LocalTime.of(12, 0))
+                .build());
+
+        Lesson lessonGroup2 = lessonRepository.save(Lesson.builder()
+                .studyGroup(studyGroup2)
+                .teacher(teacherUser)
+                .topic("Продвинутый Stream API")
+                .lessonDate(LocalDate.now().plusDays(2))
+                .startTime(LocalTime.of(14, 0))
+                .endTime(LocalTime.of(16, 0))
+                .build());
+
+        // Act & Assert
+        mockMvc.perform(get("/api/v1/students/{studentId}/lessons", student.getId())
+                        .header("Authorization", "Bearer " + adminToken) // ADMIN имеет доступ ко всем
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].topic").value("Базовый синтаксис"))
+                .andExpect(jsonPath("$[1].topic").value("Продвинутый Stream API"));
+    }
+
+    @Test
+    @DisplayName("Тест 2: фильтр по датам — возвращаются только занятия в диапазоне")
+    void getLessonsByStudent_WithDateFilter_ReturnsFilteredLessons() throws Exception {
+        // Arrange
+        LocalDate today = LocalDate.now();
+
+        // Создаем 3 занятия на разные даты
+        Lesson earlyLesson = lessonRepository.save(Lesson.builder()
+                .studyGroup(studyGroup).teacher(teacherUser).topic("Вчерашняя тема")
+                .lessonDate(today.minusDays(1)).startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).build());
+
+        Lesson targetLesson1 = lessonRepository.save(Lesson.builder()
+                .studyGroup(studyGroup).teacher(teacherUser).topic("Сегодняшняя тема")
+                .lessonDate(today).startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).build());
+
+        Lesson targetLesson2 = lessonRepository.save(Lesson.builder()
+                .studyGroup(studyGroup).teacher(teacherUser).topic("Завтрашняя тема")
+                .lessonDate(today.plusDays(1)).startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).build());
+
+        String fromDateStr = today.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
+        String toDateStr = today.plusDays(1).format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
+        // Act & Assert
+        mockMvc.perform(get("/api/v1/students/{studentId}/lessons", student.getId())
+                        .header("Authorization", "Bearer " + adminToken)
+                        .param("dateFrom", fromDateStr)
+                        .param("dateTo", toDateStr)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].topic").value("Сегодняшняя тема"))
+                .andExpect(jsonPath("$[1].topic").value("Завтрашняя тема"));
+    }
+
+    @Test
+    @DisplayName("Тест 3: STUDENT с чужим studentId → HTTP 403")
+    void getLessonsByStudent_AsOtherStudent_ReturnsForbidden() throws Exception {
+        // Arrange
+        // Создаем карточку другого студента, которая принадлежит пользователю otherStudentUser
+        Student otherStudent = studentRepository.save(Student.builder()
+                .firstName("Петр").lastName("Петров").email("petr@test.ru")
+                .user(otherStudentUser)
+                .build());
+
+        // Act & Assert
+        // studentToken принадлежит первому студенту (studentUser), но он пытается посмотреть расписание otherStudent
+        mockMvc.perform(get("/api/v1/students/{studentId}/lessons", otherStudent.getId())
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+    @Test
+    @DisplayName("Тест 4: несуществующий studentId → HTTP 404 (Не найдено)")
+    void getLessonsByStudent_StudentNotFound_ReturnsNotFound() throws Exception {
+        // Arrange
+        Long nonExistentStudentId = 99999L;
+
+        // Act & Assert
+        mockMvc.perform(get("/api/v1/students/{studentId}/lessons", nonExistentStudentId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound()); // Меняем на фактический статус
+    }
+    @Test
+    @DisplayName("Тест 5: роль TEACHER → HTTP 403")
+    void getLessonsByStudent_AsTeacher_ReturnsForbidden() throws Exception {
+        // Act & Assert
+        // Учителя нет в списке разрешенных ролей аннотации @PreAuthorize контроллера
+        mockMvc.perform(get("/api/v1/students/{studentId}/lessons", student.getId())
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
     }
 }

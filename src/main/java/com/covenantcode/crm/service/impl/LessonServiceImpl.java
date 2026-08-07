@@ -274,4 +274,35 @@ public class LessonServiceImpl implements LessonService {
 
         throw new ForbiddenException("Недостаточно прав");
     }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<LessonResponse> getLessonsByStudent(Long studentId, LocalDate dateFrom, LocalDate dateTo, Authentication authentication) {
+        // 1. Проверяем существование студента через проектное исключение (исправлено с 500 на 404)
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
+
+        // 2. Безопасно извлекаем текущего пользователя из аутентификации (без лишнего запроса к БД)
+        User currentUser = extractUserFromAuthentication(authentication);
+
+        // 3. Проверяем права доступа, используя доменную модель и Enum (исправлена непоследовательность)
+        boolean isStudent = currentUser.getRole().getName() == RoleName.STUDENT;
+
+        if (isStudent) {
+            Long linkedUserId = student.getUser().getId();
+            Long currentUserId = currentUser.getId();
+
+            // Студент может смотреть только свое собственное расписание
+            if (!linkedUserId.equals(currentUserId)) {
+                throw new ForbiddenException("You do not have permission to view this schedule");
+            }
+        }
+
+        // 4. Получаем расписание через строго определенный JPQL подзапрос по ТЗ
+        List<Lesson> lessons = lessonRepository.findLessonsByStudentIdWithDates(studentId, dateFrom, dateTo);
+
+        // 5. Маппим результат в Response DTO
+        return lessonMapper.toResponseList(lessons);
+    }
 }

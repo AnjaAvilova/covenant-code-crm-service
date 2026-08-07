@@ -49,13 +49,12 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -64,7 +63,6 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -974,5 +972,124 @@ class LessonServiceImplTest {
         assertTrue(exception.getMessage().contains(String.valueOf(nonExistentId)));
 
         verify(lessonRepository, never()).delete(any(Lesson.class));
+    }
+
+    @Test
+    @DisplayName("Тест 1: ADMIN запрашивает расписание студента — успех")
+    void getLessonsByStudent_AsAdmin_Success() {
+        // Arrange
+        Long searchStudentId = 7L;
+        Student targetStudent = new Student();
+        targetStudent.setId(searchStudentId);
+        targetStudent.setUser(studentUserEntity);
+
+        List<Lesson> lessons = List.of(lessonForGetById, new Lesson());
+        List<LessonResponse> responses = List.of(lessonResponseForGetById, LessonResponse.builder().build());
+
+        // РЕШЕНИЕ: Настраиваем мок authentication, так как extractUserFromAuthentication берет данные оттуда
+        when(authentication.getPrincipal()).thenReturn(adminUser);
+
+        when(studentRepository.findById(searchStudentId)).thenReturn(Optional.of(targetStudent));
+        when(lessonRepository.findLessonsByStudentIdWithDates(searchStudentId, null, null)).thenReturn(lessons);
+        when(lessonMapper.toResponseList(lessons)).thenReturn(responses);
+
+        // Act
+        List<LessonResponse> result = lessonService.getLessonsByStudent(searchStudentId, null, null, authentication);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    @DisplayName("Тест 2: STUDENT запрашивает своё расписание — успех")
+    void getLessonsByStudent_AsSelfStudent_Success() {
+        // Arrange
+        Long searchStudentId = studentEntity.getId();
+
+        List<Lesson> lessons = List.of(lessonForGetById);
+        List<LessonResponse> responses = List.of(lessonResponseForGetById);
+
+        // Настраиваем principal на самого студента
+        when(authentication.getPrincipal()).thenReturn(studentUserEntity);
+
+        when(studentRepository.findById(searchStudentId)).thenReturn(Optional.of(studentEntity));
+        when(lessonRepository.findLessonsByStudentIdWithDates(searchStudentId, null, null)).thenReturn(lessons);
+        when(lessonMapper.toResponseList(lessons)).thenReturn(responses);
+
+        // Act
+        List<LessonResponse> result = lessonService.getLessonsByStudent(searchStudentId, null, null, authentication);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    @DisplayName("Тест 3: STUDENT запрашивает чужое расписание — ForbiddenException")
+    void getLessonsByStudent_AsOtherStudent_ThrowsForbiddenException() {
+        // Arrange
+        Long searchStudentId = studentEntity.getId();
+
+        User otherStudentUser = new User();
+        otherStudentUser.setId(20L); // ID отличается от владельца (10L)
+        otherStudentUser.setEmail("other_student@example.com");
+        otherStudentUser.setRole(studentRole);
+
+        // Настраиваем principal на чужого студента
+        when(authentication.getPrincipal()).thenReturn(otherStudentUser);
+        when(studentRepository.findById(searchStudentId)).thenReturn(Optional.of(studentEntity));
+
+        // Act & Assert
+        assertThrows(ForbiddenException.class, () ->
+                lessonService.getLessonsByStudent(searchStudentId, null, null, authentication)
+        );
+        verify(lessonRepository, never()).findLessonsByStudentIdWithDates(any(), any(), any());
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    @DisplayName("Тест 4: студент не найден — ResourceNotFoundException")
+    void getLessonsByStudent_StudentNotFound_ThrowsResourceNotFoundException() {
+        // Arrange
+        Long invalidStudentId = 99L;
+        when(studentRepository.findById(invalidStudentId)).thenReturn(Optional.empty());
+
+        // Act & Assert
+        assertThrows(ResourceNotFoundException.class, () ->
+                lessonService.getLessonsByStudent(invalidStudentId, null, null, authentication)
+        );
+        verifyNoInteractions(lessonRepository, userRepository, lessonMapper);
+    }
+
+    @Test
+    @DisplayName("Тест 5: студент в двух группах — возвращаются занятия обеих групп")
+    void getLessonsByStudent_MultipleGroups_Success() {
+        // Arrange
+        Long searchStudentId = studentEntity.getId();
+
+        List<Lesson> lessons = List.of(lessonForGetById, new Lesson(), new Lesson());
+        List<LessonResponse> responses = List.of(
+                lessonResponseForGetById,
+                LessonResponse.builder().build(),
+                LessonResponse.builder().build()
+        );
+
+        // Настраиваем principal на администратора
+        when(authentication.getPrincipal()).thenReturn(adminUser);
+
+        when(studentRepository.findById(searchStudentId)).thenReturn(Optional.of(studentEntity));
+        when(lessonRepository.findLessonsByStudentIdWithDates(searchStudentId, null, null)).thenReturn(lessons);
+        when(lessonMapper.toResponseList(lessons)).thenReturn(responses);
+
+        // Act
+        List<LessonResponse> result = lessonService.getLessonsByStudent(searchStudentId, null, null, authentication);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(3, result.size());
+        verifyNoInteractions(userRepository);
     }
 }
